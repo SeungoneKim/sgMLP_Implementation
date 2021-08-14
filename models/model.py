@@ -90,9 +90,8 @@ print("The number of parameters:",sum([p.numel() for p in tmp_model.parameters()
 
 The number of parameters: 18580300 elements
 """
-def build_model(num_tokens, d_model, d_ffn, seq_len, num_layers):
+def build_model(num_tokens, d_model, d_ffn, seq_len, num_layers,device):
     
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = gMLP_LanguageModel(num_tokens, d_model, d_ffn, seq_len, num_layers,True)
     
-    return model.cuda() if torch.cuda.is_available() else model
+    return model.to(device) if torch.cuda.is_available() else model

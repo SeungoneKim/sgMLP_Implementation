@@ -78,10 +78,7 @@ class Pretrain_Trainer():
         self.t_total = self.train_batch_num * self.n_epoch
         
         # build model
-        self.model= build_model(self.args.pad_idx, self.args.mask_idx, 
-                        self.args.cls_idx, self.args.sep_idx, self.args.unk_idx,
-                        self.vocab_size, self.args.model_dim, self.args.key_dim, self.args.value_dim, self.args.hidden_dim, 
-                        self.args.num_heads, self.args.num_layers, self.max_len, self.args.drop_prob, self.device)
+        self.model= build_model(self.vocab_size, self.args.model_dim, self.args.hidden_dim, self.max_len, self.args.num_layers, self.device)
         
         self.model.apply(initialize_weights)
 
