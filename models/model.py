@@ -66,17 +66,22 @@ class gMLP(nn.Module):
         return x
 
 class gMLP_LanguageModel(gMLP):
-    def __init__(self,vocab_size =384, d_model=256, d_ffn=256, seq_len=256, num_layers=6,output_logits=False):
+    def __init__(self,vocab_size, d_model, d_ffn, seq_len, num_layers,device,output_logits=False):
         super().__init__(d_model,d_ffn,seq_len,num_layers)
+        self.device = device
         self.embed = nn.Embedding(vocab_size,d_model)
         self.output_logits = output_logits
         self.to_logits = nn.Sequential(nn.LayerNorm(d_model),nn.Linear(d_model,vocab_size))
+        self.softmax = nn.LogSoftmax(dim=-1)
 
     def forward(self,x):
         embedding = self.embed(x)
+        embedding = embedding.to(self.device)
         output = self.model(embedding)
         if self.output_logits:
-            output = self.to_logits(output)
+            output = self.softmax(self.to_logits(output))
+
+
         return output
     
     def count_parameters(self):
@@ -92,6 +97,11 @@ The number of parameters: 18580300 elements
 """
 def build_model(num_tokens, d_model, d_ffn, seq_len, num_layers,device):
     
-    model = gMLP_LanguageModel(num_tokens, d_model, d_ffn, seq_len, num_layers,True)
+    model = gMLP_LanguageModel(num_tokens,d_model,d_ffn,
+                            seq_len,num_layers,device,True).to(device)
     
-    return model.to(device) if torch.cuda.is_available() else model
+    if torch.cuda.device_count()>1:
+        print("Using ",torch.cuda.device_count(),"GPUs in total!")
+        model = torch.nn.DataParallel(model,device_ids=[0,1,2,3],output_device=1)
+    
+    return model.cuda() if torch.cuda.is_available() else model

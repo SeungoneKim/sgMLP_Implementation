@@ -91,7 +91,6 @@ class Pretrain_Trainer():
         
         # build lossfn
         self.mlm_lossfn = load_lossfn(self.args.pretrain_lossfn,self.device,self.args.pad_idx)
-        self.nsp_lossfn = load_lossfn(self.args.pretrain_lossfn,self.device)
 
     def train_test(self):
         best_model_epoch, training_history, validation_history = self.pretrain()
@@ -159,7 +158,6 @@ class Pretrain_Trainer():
 
                 # compute model output
                 # model_output_mlm = [bs, sl, vocab_size]
-                # model_output_nsp = [bs, 2]
                 model_output_mlm = self.model(input_ids)      # [bs,sl,vocab]
 
                 # reshape model output and labels for MLM Task
@@ -169,7 +167,7 @@ class Pretrain_Trainer():
                 # clear graidents
                 self.optimizer.zero_grad()
                 
-                # compute loss using model output for MLM Task & NSP Task
+                # compute loss using model output for MLM Task
                 mlm_loss = self.mlm_lossfn(reshaped_model_output_mlm, reshaped_label_ids)
 
                 #compute gradient with current batch
@@ -215,14 +213,13 @@ class Pretrain_Trainer():
 
                 # compute model output
                 # model_output_mlm = [bs, sl, vocab_size]
-                # model_output_nsp = [bs, 2]
                 model_output_mlm = self.model(input_ids)          # [bs,sl,vocab]
                 
                 # reshape model output and labels for MLM Task
                 reshaped_model_output_mlm = model_output_mlm.contiguous().view(-1,model_output_mlm.shape[-1]).to(self.device)       # [bs*sl,vocab]
                 reshaped_label_ids = label_ids.contiguous().view(-1).cuda(reshaped_model_output_mlm.device)                         # [bs*sl]
 
-                # compute loss using model output and labels for NSP Task
+                # compute loss using model output and labels for MLM Task
                 mlm_loss = self.mlm_lossfn(reshaped_model_output_mlm, reshaped_label_ids)
                 
                 # add loss to training_loss
