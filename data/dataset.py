@@ -41,6 +41,8 @@ class PretrainDataset(Dataset):
 
         # choosing idx of second sentence
         data2_idx = index+1
+        if data2_idx == self.data_len:
+            data2_idx=index
         is_next = True
 
         # rechoosing idx of second sentence if it shouldn't be consecutive or is same with the first sentence
