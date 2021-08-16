@@ -18,6 +18,17 @@ from util.utils import (load_metricfn, load_optimizer, load_scheduler, load_loss
                         save_checkpoint, load_checkpoint, save_bestmodel, 
                         time_measurement, count_parameters, initialize_weights)
 from models.model import build_model
+from glue_dataloader.Glue_ax import *
+from glue_dataloader.Glue_cola import *
+from glue_dataloader.Glue_qqp import *
+from glue_dataloader.Glue_rte import *
+from glue_dataloader.Glue_mnli import *
+from glue_dataloader.Glue_mnli_m import *
+from glue_dataloader.Glue_mnli_mm import *
+from glue_dataloader.Glue_mrpc import *
+from glue_dataloader.Glue_sst2 import *
+from glue_dataloader.Glue_stsb import *
+from glue_dataloader.Glue_wnli import *
 
 class Finetune_Trainer():
     def __init__(self, parser):
@@ -48,37 +59,42 @@ class Finetune_Trainer():
         self.patience = self.args.patience
         self.clip = self.args.clip
 
-        self.enc_language = self.args.enc_language
-        self.dec_language = self.args.dec_language
-        self.enc_max_len = self.args.enc_max_len
-        self.dec_max_len = self.args.dec_max_len
+        self.language = self.args.language
+        self.max_len = self.args.max_len
+        self.vocab_size = self.args.vocab_size
 
         self.device = self.args.device
-
+        
+        #############
         # build dataloader
+        # SUPPORTS cola, sst2, mrpc, qqp, stsb, mnli, rte, wnli
+        # loads the dataloader of the selected dataset by specifying in self.finetune_dataset_name
         self.train_dataloader, self.val_dataloader, self.test_dataloader = get_dataloader(
             self.train_batch_size, self.val_batch_size, self.test_batch_size,
-            self.enc_language, self.dec_language, self.enc_max_len, self.dec_max_len,
-            self.args.dataset_name, self.args.dataset_type, self.args.category_name,
-            self.args.x_name, self.args.y_name, self.args.percentage
+            self.language, self.max_len,
+            self.args.finetune_dataset_name, self.args.finetune_dataset_type, self.args.finetune_category_name,
+            self.args.finetune_x_name, self.finetune_x_name_1, self.finetune_x_name_2,
+            self.args.finetune_y_name, self.args.finetune_percentage
         )
+        #############
+
         self.train_batch_num = len(self.train_dataloader)
         self.val_batch_num = len(self.val_dataloader)
         self.test_batch_num = len(self.test_dataloader)
         
+        self.num_training_steps = (self.train_batch_num) * (self.n_epoch)
+
         self.t_total = self.train_batch_num * self.n_epoch
 
         # build tokenizer (for decoding purpose)
-        self.decoder_tokenizer = Tokenizer(self.args.dec_language,self.args.dec_max_len)
+        #self.decoder_tokenizer = Tokenizer(self.args.dec_language,self.args.dec_max_len)
 
         # load metric
+        # loads the metric of the selected dataset by specifying in self.args.metric
         self.metric = load_metricfn(self.args.metric)
         
         # build model
-        self.model = build_model(self.args.enc_pad_idx, self.args.dec_pad_idx,
-                        self.args.enc_vocab_size, self.args.dec_vocab_size, 
-                        self.args.model_dim, self.args.key_dim, self.args.value_dim, self.args.hidden_dim, 
-                        self.args.num_heads, self.args.num_layers, self.args.enc_max_len, self.args.dec_max_len, self.args.drop_prob)
+        self.model= build_model(self.vocab_size, self.args.model_dim, self.args.hidden_dim, self.max_len, self.args.num_layers, self.device)
         
         self.model.apply(initialize_weights)
 
@@ -90,7 +106,7 @@ class Finetune_Trainer():
         self.scheduler = load_scheduler(self.optimizer, self.factor, self.patience)
         
         # build lossfn
-        self.lossfn = load_lossfn(self.args.lossfn,self.args.dec_pad_idx)
+        self.lossfn = load_lossfn(self.args.finetune_lossfn,self.device,self.args.pad_idx)
 
     def train_test(self):
         best_model_epoch, training_history, validation_history = self.finetune()
@@ -154,26 +170,18 @@ class Finetune_Trainer():
             # train model using batch gradient descent with Adam Optimizer
             for batch_idx, batch in tqdm(enumerate(self.train_dataloader)):
                 # move batch of data to gpu
-                encoder_input_ids = batch['encoder_input_ids'].to(self.device)
-                encoder_attention_mask = batch['encoder_attention_mask'].to(self.device)
-                decoder_input_ids = batch['decoder_input_ids'].to(self.device)
-                decoder_labels = batch['labels'].to(self.device)
-                decoder_attention_mask = batch['decoder_attention_mask'].to(self.device)
-
-                # shift shape to (bs,sl)
-                encoder_input_ids = encoder_input_ids.squeeze(1)
-                decoder_input_ids = decoder_input_ids.squeeze(1)
-                decoder_labels = decoder_labels.squeeze(1)
+                input_ids = batch['sentence'].to(self.device)       # ???
+                labels = batch['label'].to(self.device)             # ???
 
                 # compute model output
-                model_output = self.model(encoder_input_ids, decoder_input_ids[:, :-1]) # [bs,sl-1,vocab_dec]
+                model_output = self.model(input_ids)                # ???
 
                 # reshape model output and labels
-                reshaped_model_output = model_output.contiguous().view(-1,model_output.shape[-1]) # [bs*(sl-1),vocab_dec]
-                reshaped_decoder_labels = decoder_labels[:,1:].contiguous().view(-1) # [bs*(sl-1)]
+                reshaped_model_output = model_output.contiguous().view(-1,model_output.shape[-1])   # ???
+                reshaped_labels = labels[:,1:].contiguous().view(-1)                                # ???
                 
                 # compute loss using model output and labels(reshaped ver)
-                loss = self.lossfn(reshaped_model_output, reshaped_decoder_labels)
+                loss = self.lossfn(reshaped_model_output, reshaped_labels)
 
                 # clear gradients, and compute gradient with current batch
                 self.optimizer.zero_grad()
@@ -190,8 +198,8 @@ class Finetune_Trainer():
                 training_loss_per_epoch += training_loss_per_iteration
 
                 # compute bleu score using model output and labels(reshaped ver)
-                training_score_per_iteration,_1,_2 = self.compute_bleu(model_output,decoder_labels)
-                training_score_per_epoch += training_score_per_iteration["bleu"]
+                training_score_per_iteration = self.metric(reshaped_model_output, reshaped_labels)
+                training_score_per_epoch += training_score_per_iteration
 
                 # Display summaries of training procedure with period of display_step
                 if ((batch_idx+1) % self.display_step==0) and (batch_idx>0):
@@ -219,23 +227,15 @@ class Finetune_Trainer():
             # validate model using batch gradient descent with Adam Optimizer
             for batch_idx, batch in tqdm(enumerate(self.val_dataloader)):
                 # move batch of data to gpu
-                encoder_input_ids = batch['encoder_input_ids'].to(self.device)
-                encoder_attention_mask = batch['encoder_attention_mask'].to(self.device)
-                decoder_input_ids = batch['decoder_input_ids'].to(self.device)
-                decoder_labels = batch['labels'].to(self.device)
-                decoder_attention_mask = batch['decoder_attention_mask'].to(self.device)
-
-                # shift shape to (bs,sl)
-                encoder_input_ids = encoder_input_ids.squeeze(1)
-                decoder_input_ids = decoder_input_ids.squeeze(1)
-                decoder_labels = decoder_labels.squeeze(1)
+                input_ids = batch['sentence'].to(self.device)       # ???
+                labels = batch['label'].to(self.device)             # ???
 
                 # compute model output
-                model_output = self.model(encoder_input_ids, decoder_input_ids[:, :-1]) # [bs,sl-1,vocab_dec]
-                
+                model_output = self.model(input_ids)                # ???
+
                 # reshape model output and labels
-                reshaped_model_output = model_output.contiguous().view(-1,model_output.shape[-1]) # [bs*(sl-1),vocab_dec]
-                reshaped_decoder_labels = decoder_labels[:,1:].contiguous().view(-1) # [bs*(sl-1),vocab_dec]
+                reshaped_model_output = model_output.contiguous().view(-1,model_output.shape[-1])   # ???
+                reshaped_labels = labels[:,1:].contiguous().view(-1)                                # ???
                 
                 # compute loss using model output and labels(reshaped ver)
                 loss = self.lossfn(reshaped_model_output, reshaped_decoder_labels)
@@ -245,8 +245,8 @@ class Finetune_Trainer():
                 validation_loss_per_epoch += validation_loss_per_iteration
 
                 # compute bleu score using model output and labels(reshaped ver)
-                validation_score_per_iteration,_1,_2 = self.compute_bleu(reshaped_model_output,reshaped_decoder_labels)
-                validation_score_per_epoch += validation_score_per_iteration["bleu"]
+                validation_score_per_iteration = self.metric(reshaped_model_output, reshaped_labels)
+                validation_score_per_epoch += validation_score_per_iteration
 
             # save validation loss of each epoch, in other words, the average of every batch in the current epoch
             validation_mean_loss_per_epoch = validation_loss_per_epoch / validation_batch_num
@@ -297,6 +297,7 @@ class Finetune_Trainer():
 
         return best_model_epoch, training_history, validation_history
     
+
     def test(self, best_model_epoch):
 
         # logging message

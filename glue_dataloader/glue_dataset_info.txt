@@ -1,0 +1,31 @@
+
+MNLI : Multi-Genre Natural Language Inference.
+Given a pair of sentences,
+한 쌍의 문장이 주어지면, 두 문장 사이의 관계를 유추하는 task
+
+QQP : Quora Question Pairs
+Quora에 올라온 두 질문이 의미적으로 일치하는지 판단하는 task
+
+Cola : The Corpus of Linguistic Acceptability
+해당 하나의 문장이 언어적으로 acceptable 한지 판단하는 binary classification task
+
+STS-B : The Semantic Textual Similarity 
+두 문장이 의미적으로 얼마나 일치하는지 1-5점으로 평가하는 task
+
+MRPC : Microsoft Research Paraphrase Corpus 
+두 문장이 의미적으로 일치하는지 판별하는 task
+
+QNLI : Question Natural Language Inference
+binary classification task, pair를 positive와 negative로 구성하여
+동일한 paragraph에서 답이 있는지 맞추는 task (SQuaD dataset)
+
+SST-2 : The Stanford Sentiment Treebank
+sentimental analysis task, binary single-sentence classification task
+(movie review with human annotations of their sentiment)
+
+RTE : Recognizeing Textual Entailment
+binary entailment task similar to MNLI
+텍스트 함의 인식, binary classification
+
+WNLI : Winograd NLI
+small natural language inference dataset (데이터셋 자체의 문제, BERT에서는 사용 x)

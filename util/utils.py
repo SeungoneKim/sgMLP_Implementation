@@ -52,7 +52,7 @@ def load_lossfn(lossfn_type,device,ignore_idx=None):
             if ignore_idx != None:
                 lossfn = nn.CrossEntropyLoss(ignore_index=ignore_idx).to(device)
             else:
-                lossfn = nn.CrossEntropyLoss()
+                lossfn = nn.CrossEntropyLoss().to(device)
         elif lossfn_type == 'KLDivLoss':
             lossfn = nn.KLDivLoss()
         elif lossfn_type == 'BCEWithLogitsLoss':
@@ -65,7 +65,7 @@ def load_lossfn(lossfn_type,device,ignore_idx=None):
             if ignore_idx != None:
                 lossfn = nn.NLLLoss(ignore_index=ignore_idx).to(device)
             else:
-                lossfn = nn.NLLLoss()
+                lossfn = nn.NLLLoss().to(device)
     
     return lossfn
 

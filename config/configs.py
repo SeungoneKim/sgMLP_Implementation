@@ -51,6 +51,7 @@ parser.add_argument('--mask_idx',type=int,default=103) # [MASK]
 # trainer
 parser.add_argument('--metric',type=str, default='accuracy_score') # For Finetuning
 parser.add_argument('--pretrain_lossfn',type=str, default= 'NLLLoss')
+parser.add_argument('--finetune_lossfn',type=str, default= 'CrossEntropyLoss')
 # dataloader
 # pretrain
 parser.add_argument('--pretrain_dataset_name',type=str, default='bookcorpus') # bookcorpus
@@ -72,6 +73,8 @@ parser.add_argument('--finetune_category_name',type=str, default=None) # transla
 parser.add_argument('--finetune_x_name',type=str, default=None) # de
 parser.add_argument('--finetune_y_name',type=str, default=None) # en
 parser.add_argument('--finetune_percentage',type=int, default=100)
+
+parser.add_argument('--model_path', type=str, default=None)
 
 def get_config():
     return parser

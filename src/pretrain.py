@@ -60,6 +60,8 @@ class Pretrain_Trainer():
 
         self.device = self.args.device
 
+        self.cur_path, self.weight_path, self.final_model_path = get_path_info()
+
         # build dataloader
         self.train_dataloader, self.val_dataloader, self.test_dataloader = get_Pretrain_dataloader(
             self.train_batch_size, self.val_batch_size, self.test_batch_size,
@@ -133,7 +135,7 @@ class Pretrain_Trainer():
         # start of looping through training data
         for epoch_idx in range(self.n_epoch):
             # measure time when epoch start
-            start_time = time.time()
+            epoch_start_time = time.time()
             
             sys.stdout.write('#################################################\n')
             sys.stdout.write(f"Epoch : {epoch_idx+1} / {self.n_epoch}")
@@ -232,23 +234,23 @@ class Pretrain_Trainer():
             validation_history.append(validation_mean_loss_per_epoch)
 
             # Display summaries of validation result after all validation is done
-            sys.stdout.write(f"Validation Phase |  Epoch: {epoch_idx+1} | MLM loss : {validation_loss_per_iteration_mlm}")
+            sys.stdout.write(f"Validation Phase |  Epoch: {epoch_idx+1} | MLM loss : {validation_mean_loss_per_epoch}")
             sys.stdout.write('\n')
 
 
             # Model Selection Process using validation_mean_score_per_epoch
             if (validation_mean_loss_per_epoch < best_model_mlm_loss):
-                best_model_epoch = epoch_idx
+                best_model_epoch = epoch_idx+1
                 best_model_mlm_loss = validation_mean_loss_per_epoch
 
-                save_checkpoint(self.model, self.optimizer, epoch_idx,
-                            os.path.join(self.args.weight_path,str(epoch_idx+1)+".pth"))
+                save_checkpoint(self.model, self.optimizer, epoch_idx+1,
+                            os.path.join(self.weight_path,str(epoch_idx+1)+".pth"))
 
             # measure time when epoch end
-            end_time = time.time()
+            epoch_end_time = time.time()
 
             # measure the amount of time spent in this epoch
-            epoch_mins, epoch_secs = time_measurement(start_time, end_time)
+            epoch_mins, epoch_secs = time_measurement(epoch_start_time, epoch_end_time)
             sys.stdout.write(f"Time spent in {epoch_idx+1} is {epoch_mins} minuites and {epoch_secs} seconds\n")
             
             # measure the total amount of time spent until now
@@ -287,17 +289,14 @@ class Pretrain_Trainer():
         weightpath = os.path.join(os.getcwd(),'weights')
 
         # loading the best_model from checkpoint
-        best_model = build_model(self.args.pad_idx, self.args.pad_idx, self.args.bos_idx, 
-                self.args.vocab_size, self.args.vocab_size, 
-                self.args.model_dim, self.args.key_dim, self.args.value_dim, self.args.hidden_dim, 
-                self.args.num_head, self.args.num_layers, self.args.max_len, self.args.drop_prob)
+        best_model = build_model(self.vocab_size, self.args.model_dim, self.args.hidden_dim, self.max_len, self.args.num_layers, self.device)
         
         load_checkpoint(best_model, self.optimizer, 
-                    os.path.join(self.args.weight_path,str(best_model_epoch+1)+".pth"))
+                    os.path.join(self.weight_path,str(best_model_epoch)+".pth"))
 
         # save best model
         save_bestmodel(best_model,self.optimizer,self.args,
-                            os.path.join(self.args.final_model_path,"bestmodel.pth"))
+                            os.path.join(self.final_model_path,"bestmodel.pth"))
 
     def plot(self, training_history, validation_history):
         step = np.linspace(0,self.n_epoch,self.n_epoch)
