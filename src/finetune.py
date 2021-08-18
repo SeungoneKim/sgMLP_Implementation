@@ -170,8 +170,8 @@ class Finetune_Trainer():
             # train model using batch gradient descent with Adam Optimizer
             for batch_idx, batch in tqdm(enumerate(self.train_dataloader)):
                 # move batch of data to gpu
-                input_ids = batch['sentence'].to(self.device)       # ???
-                labels = batch['label'].to(self.device)             # ???
+                input_ids = batch['input_ids'].to(self.device)       # ???
+                labels = batch['label'].to(self.device)              # ???
 
                 # compute model output
                 model_output = self.model(input_ids)                # ???

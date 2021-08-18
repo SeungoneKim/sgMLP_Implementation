@@ -97,7 +97,7 @@ class Pretrain_Trainer():
     def train_test(self):
         best_model_epoch, training_history, validation_history = self.pretrain()
         self.save_best_pretrained_model(best_model_epoch)
-        self.plot(training_history, validation_history)
+        #self.plot(training_history, validation_history)
         
     def pretrain(self):
         
@@ -251,13 +251,13 @@ class Pretrain_Trainer():
 
             # measure the amount of time spent in this epoch
             epoch_mins, epoch_secs = time_measurement(epoch_start_time, epoch_end_time)
-            sys.stdout.write(f"Time spent in {epoch_idx+1} is {epoch_mins} minuites and {epoch_secs} seconds\n")
+            sys.stdout.write(f"Time spent in epoch {epoch_idx+1} is {epoch_mins} minuites and {epoch_secs} seconds\n")
             
             # measure the total amount of time spent until now
-            total_time_spent += (end_time - start_time)
+            total_time_spent += (epoch_end_time - epoch_start_time)
             total_time_spent_mins = int(total_time_spent/60)
             total_time_spent_secs = int(total_time_spent - (total_time_spent_mins*60))
-            sys.stdout.write(f"Total amount of time spent until {epoch_idx+1} is {total_time_spent_mins} minuites and {total_time_spent_secs} seconds\n")
+            sys.stdout.write(f"Total amount of time spent until epoch {epoch_idx+1} is {total_time_spent_mins} minuites and {total_time_spent_secs} seconds\n")
 
             # calculate how more time is estimated to be used for training
             avg_time_spent_secs = total_time_spent_secs / (epoch_idx+1)
@@ -265,7 +265,7 @@ class Pretrain_Trainer():
             estimated_left_time = avg_time_spent_secs * left_epochs
             estimated_left_time_mins = int(estimated_left_time/60)
             estimated_left_time_secs = int(estimated_left_time - (estimated_left_time_mins*60))
-            sys.stdout.write(f"Estimated amount of time until {self.n_epoch} is {estimated_left_time_mins} minuites and {estimated_left_time_secs} seconds\n")
+            sys.stdout.write(f"Estimated amount of time until epoch {self.n_epoch} is {estimated_left_time_mins} minuites and {estimated_left_time_secs} seconds\n")
 
         # summary of whole procedure    
         sys.stdout.write('#################################################\n')
