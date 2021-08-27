@@ -17,6 +17,7 @@ from data.tokenizer import Tokenizer
 from util.utils import (load_metricfn, load_optimizer, load_scheduler, load_lossfn, 
                         save_checkpoint, load_checkpoint, save_bestmodel, 
                         time_measurement, count_parameters, initialize_weights)
+from util.optim_scheduler import ScheduledOptim
 from models.model import build_model
 
 class Pretrain_Trainer():
@@ -89,7 +90,7 @@ class Pretrain_Trainer():
                                         self.beta1, self.beta2)
         
         # build scheduler
-        self.scheduler = load_scheduler(self.optimizer, self.num_warmup_steps, self.num_training_steps)
+        self.optim_scheduler = ScheduledOptim(self.optimizer, self.args.model_dim, self.num_warmup_steps)
         
         # build lossfn
         self.mlm_lossfn = load_lossfn(self.args.pretrain_lossfn,self.device,self.args.pad_idx)
@@ -130,7 +131,7 @@ class Pretrain_Trainer():
         validation_history=[]
 
         # predict when training will end based on average time
-        total_time_spent_secs = 0
+        total_time_spent = 0
         
         # start of looping through training data
         for epoch_idx in range(self.n_epoch):
@@ -157,29 +158,30 @@ class Pretrain_Trainer():
                 # move batch of data to gpu
                 input_ids = batch['input_ids'].to(self.device)                      #[bs, sl]
                 label_ids = batch['label_ids'].cuda(input_ids.device)               #[bs, sl]
+                token_type_ids = batch['token_type_ids'].cuda(input_ids.device)     #[bs, sl]
 
                 # compute model output
                 # model_output_mlm = [bs, sl, vocab_size]
-                model_output_mlm = self.model(input_ids)      # [bs,sl,vocab]
+                model_output_mlm = self.model(input_ids, token_type_ids)      # [bs,sl,vocab]
 
                 # reshape model output and labels for MLM Task
                 reshaped_model_output_mlm = model_output_mlm.contiguous().view(-1,model_output_mlm.shape[-1]).to(self.device)       # [bs*sl,vocab]
                 reshaped_label_ids = label_ids.contiguous().view(-1).cuda(reshaped_model_output_mlm.device)                         # [bs*sl]
                 
-                # clear graidents
-                self.optimizer.zero_grad()
-                
                 # compute loss using model output for MLM Task
                 mlm_loss = self.mlm_lossfn(reshaped_model_output_mlm, reshaped_label_ids)
+
+                # clear gradients
+                self.optim_scheduler.zero_grad()
 
                 #compute gradient with current batch
                 mlm_loss.backward()
 
                 # clip gradients
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(),self.clip)
+                #torch.nn.utils.clip_grad_norm_(self.model.parameters(),self.clip)
 
                 # update gradients
-                self.optimizer.step()
+                self.optim_scheduler.step_and_update_lr()
 
                 # add loss to training_loss
                 training_loss_per_iteration_mlm = mlm_loss.item()
@@ -189,9 +191,10 @@ class Pretrain_Trainer():
                 if ((batch_idx+1) % self.display_step==0) and (batch_idx>0):
                     sys.stdout.write(f"Training Phase |  Epoch: {epoch_idx+1} |  Step: {batch_idx+1} / {train_batch_num} | MLM loss : {training_loss_per_iteration_mlm}")
                     sys.stdout.write('\n')
-
-            # update scheduler
-            self.scheduler.step()
+                
+                if ((batch_idx+1) % 10000==0) and (batch_idx>0):
+                    save_checkpoint(self.model, self.optimizer, epoch_idx+1,
+                            os.path.join(self.weight_path,"iter_"+str(epoch_idx+1)+".pth"))
 
             # save training loss of each epoch, in other words, the average of every batch in the current epoch
             training_mean_loss_per_epoch = training_loss_per_epoch / train_batch_num
@@ -212,10 +215,11 @@ class Pretrain_Trainer():
                 # move batch of data to gpu
                 input_ids = batch['input_ids'].to(self.device)                      #[bs, sl]
                 label_ids = batch['label_ids'].cuda(input_ids.device)               #[bs, sl]
+                token_type_ids = batch['token_type_ids'].cuda(input_ids.device)     #[bs, sl]
 
                 # compute model output
                 # model_output_mlm = [bs, sl, vocab_size]
-                model_output_mlm = self.model(input_ids)          # [bs,sl,vocab]
+                model_output_mlm = self.model(input_ids, token_type_ids)      # [bs,sl,vocab]
                 
                 # reshape model output and labels for MLM Task
                 reshaped_model_output_mlm = model_output_mlm.contiguous().view(-1,model_output_mlm.shape[-1]).to(self.device)       # [bs*sl,vocab]
