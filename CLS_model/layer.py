@@ -1,7 +1,7 @@
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F
-from models.embedding import TransformerEmbedding
+from CLS_model.embedding import TransformerEmbedding
 from util.gelu import GELU
 
 class gMLPBLOCK_CLS(nn.Module):
