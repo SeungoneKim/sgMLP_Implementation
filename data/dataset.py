@@ -41,7 +41,7 @@ class PretrainDataset(Dataset):
 
         # choosing idx of second sentence
         data2_idx = index+1
-        if data2_idx == self.data_len:
+        if data2_idx >= self.data_len:
             data2_idx=index
         is_next = True
 
@@ -49,7 +49,7 @@ class PretrainDataset(Dataset):
         if random.random() > self.next_sent_prob:
             is_next=False
             while (data2_idx==index+1) or (data2_idx==index):
-                data2_idx = random.randint(0,self.data_len)
+                data2_idx = random.randint(0,self.data_len-1)
         
         # sampling second sentence
         data2 = self.data[data2_idx].strip()
@@ -63,6 +63,7 @@ class PretrainDataset(Dataset):
             
             input_ids = []          # masked data
             label_ids = []          # original data => IMPORTANT : should set UNMASKED token to 0(to support MLM Loss function ignore_index)
+            attention_mask = []     # attention_mask : 0 for [PAD], [MASK] tokens, 1 for other tokens
 
             # convert tokenized sentence into id & corrupt for MLM
             for idx, token in enumerate(tokenized_data):
@@ -94,11 +95,16 @@ class PretrainDataset(Dataset):
                     # Case of UNMASKED token, we put the pad token to label_ids
                     # THIS IS TO SUPPORT THE MLM LOSS FUNCTION'S ignore_index!!!!!!!!
                     label_ids.append(self.tokenizer.get_pad_token_idx())
+                
+                # Whether masked or not, we always set attention mask to 1 (0 for only padded tokens later on Transformation_into_Tensor function)
+                attention_mask.append(1)
 
-            return input_ids, label_ids
+            return input_ids, label_ids, attention_mask
         
         # transformation function : masked sentence 1 & 2 -> torch Tensor
-        def Transformation_into_Tensor(input_ids1, input_ids2, label_ids1, label_ids2):
+        def Transformation_into_Tensor(input_ids1, input_ids2, label_ids1, label_ids2, attention_mask1, attention_mask2):
+
+            token_type_ids = []     # token_type_ids : 0 for first part "[CLS] + sentence1 + [SEP]", 1 for second part "sentence2 + [SEP]"
             
             input_ids1_length = len(input_ids1)
             input_ids2_length = len(input_ids2)
@@ -136,32 +142,49 @@ class PretrainDataset(Dataset):
                         [self.tokenizer.convert_tokens_to_ids(self.tokenizer.sep_token)] + input_ids2 + \
                         [self.tokenizer.convert_tokens_to_ids(self.tokenizer.sep_token)]
             
-            label_ids = [self.tokenizer.convert_tokens_to_ids(self.tokenizer.cls_token)] + label_ids1 + \
-                        [self.tokenizer.convert_tokens_to_ids(self.tokenizer.sep_token)] + label_ids2 + \
-                        [self.tokenizer.convert_tokens_to_ids(self.tokenizer.sep_token)]
+            label_ids = [self.tokenizer.convert_tokens_to_ids(self.tokenizer.pad_token)] + label_ids1 + \
+                        [self.tokenizer.convert_tokens_to_ids(self.tokenizer.pad_token)] + label_ids2 + \
+                        [self.tokenizer.convert_tokens_to_ids(self.tokenizer.pad_token)]
 
             total_length = len(input_ids)
             pad_length = self.max_len - total_length
             input_ids = input_ids + [self.tokenizer.convert_tokens_to_ids(self.tokenizer.pad_token)] * pad_length
             label_ids = label_ids + [self.tokenizer.convert_tokens_to_ids(self.tokenizer.pad_token)] * pad_length
             
+            # convert attention mask
+            attention_mask = [1] + attention_mask1 + [1] + attention_mask2 + [1] + [0] * pad_length
+
+            # build token_type_ids 
+            token_type_ids1 = [0] * (input_ids1_length) 
+            token_type_ids2 = [1] * (input_ids2_length)
+            token_type_ids = [0] + token_type_ids1 + [0] + token_type_ids2 + [1] + [0] * pad_length
+            
             # transform to tensor
+
             input_ids = torch.Tensor(input_ids)
             label_ids = torch.Tensor(label_ids)
+            attention_mask = torch.Tensor(input_ids)
+            token_type_ids = torch.Tensor(token_type_ids)
 
-            return input_ids, label_ids
+            return input_ids, label_ids, attention_mask, token_type_ids
 
         # "ENCODE" = "tokenize" + "convert token to id" + "truncation & padding" + "Transform to Tensor"
-        masked_data1, data1= masking(data1)
-        masked_data2, data2= masking(data2)
-        encoded_input_ids, encoded_label_ids= Transformation_into_Tensor(
-            masked_data1, masked_data2, data1, data2
+        masked_data1, data1, attention_mask1 = masking(data1)
+        masked_data2, data2, attention_mask2 = masking(data2)
+        encoded_input_ids, encoded_label_ids, attention_mask, token_type_ids = Transformation_into_Tensor(
+            masked_data1, masked_data2, data1, data2, attention_mask1, attention_mask2
         )
 
         # build batch
         batch = {}
         batch['input_ids'] = encoded_input_ids.to(torch.long)
         batch['label_ids'] = encoded_label_ids.to(torch.long)
+        batch['attention_mask'] = attention_mask.to(torch.long)
+        batch['token_type_ids'] = token_type_ids.to(torch.long)
+        if is_next:
+            batch['is_next'] = torch.Tensor([1]).to(torch.long)
+        else:
+            batch['is_next'] = torch.Tensor([0]).to(torch.long)
 
         return batch
 
