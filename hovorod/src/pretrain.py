@@ -11,14 +11,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import transformers
-from config.configs import set_random_fixed, get_path_info
-from data.dataloader import get_Pretrain_dataloader
-from data.tokenizer import Tokenizer
-from util.utils import (load_metricfn, load_optimizer, load_scheduler, load_lossfn, 
+from horovod.config.configs import set_random_fixed, get_path_info
+
+from horovod.data.dataloader import get_Pretrain_dataloader
+from horovod.data.tokenizer import Tokenizer
+from horovod.util.utils import (load_metricfn, load_optimizer, load_scheduler, load_lossfn, 
                         save_checkpoint, load_checkpoint, save_bestmodel, 
                         time_measurement, count_parameters, initialize_weights)
-from util.optim_scheduler import ScheduledOptim
-from models.model import build_model
+from horovod.util.optim_scheduler import ScheduledOptim
+from horovod.CLS_model.model import build_model
 
 class Pretrain_Trainer():
     def __init__(self, parser):
