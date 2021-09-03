@@ -17,7 +17,7 @@ class gMLPBLOCK_CLS(nn.Module):
         residual = x
         x = self.layer_norm(x)
         x = F.gelu(self.channel_proj_i(x))
-        x = self.sgu(x)
+        x = F.gelu(self.sgu(x))
         x = self.channel_proj_ii(x)
         return residual + x
 
