@@ -1,11 +1,10 @@
 import logging
 import sys
-from config.configs import get_config
-from src.pretrain import Pretrain_Trainer
+from horovod_ver.config.configs import get_config
+from horovod_ver.src.pretrain import Pretrain_Trainer
 #from src.finetune import Finetune_Trainer
 
 def main(parser, usage_mode):
-
     # TO BE UPDATED
     supported_tasks = ['classification','summarization']
     
