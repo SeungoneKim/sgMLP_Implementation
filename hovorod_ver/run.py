@@ -1,6 +1,7 @@
 import logging
 import sys
 from horovod_ver.config.configs import get_config
+import horovod.torch as hvd
 from horovod_ver.src.pretrain import Pretrain_Trainer
 #from src.finetune import Finetune_Trainer
 
@@ -25,6 +26,7 @@ def main(parser, usage_mode):
         sys.stdout.write('#################################################\n')
 
         # train with Pretrain_Trainer
+        hvd.init()
         trainer = Pretrain_Trainer(parser)
         trainer.train_test()
 
