@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from CLS_model.embedding import TransformerEmbedding
 from CLS_model.layer import gMLPBLOCK_CLS
-import horovod.torch as hvd
 
 
 class gMLP(nn.Module):
@@ -16,9 +15,9 @@ class gMLP(nn.Module):
         return x
 
 class NaturalLanguageUnderstandingHead(nn.Module):
-    def __init__(self, vocab_size, model_dim):
+    def __init__(self, vocab_size, model_dim, device):
         super(NaturalLanguageUnderstandingHead,self).__init__()
-        self.linear_layer = nn.Linear(model_dim, vocab_size)
+        self.linear_layer = nn.Linear(model_dim, vocab_size).to(device)
         self.softmax = nn.LogSoftmax(dim=-1)
     
     def forward(self, encoder_output):
@@ -28,16 +27,17 @@ class NaturalLanguageUnderstandingHead(nn.Module):
         return mlm_prediction
 
 class gMLP_LanguageModel(gMLP):
-    def __init__(self,vocab_size, d_model, d_ffn, seq_len, num_layers,output_logits=False):
+    def __init__(self,vocab_size, d_model, d_ffn, seq_len, num_layers,device,output_logits=False):
         super().__init__(d_model,d_ffn,seq_len,num_layers)
-        self.embed = TransformerEmbedding(vocab_size,d_model,seq_len,0.1)
+        self.device = device
+        self.embed = TransformerEmbedding(vocab_size,d_model,seq_len,0.1,device)
         self.output_logits = output_logits
-        self.to_logits = NaturalLanguageUnderstandingHead(vocab_size,d_model)
+        self.to_logits = NaturalLanguageUnderstandingHead(vocab_size,d_model,device)
         self.softmax = nn.LogSoftmax(dim=-1)
 
     def forward(self,x):
         embedding = self.embed(x)
-        embedding = embedding.cuda()
+        embedding = embedding.to(self.device)
         output = self.model(embedding)
         if self.output_logits:
             output = self.softmax(self.to_logits(output))
@@ -50,11 +50,13 @@ params = list(tmp_model.parameters())
 print("The number of parameters:",sum([p.numel() for p in tmp_model.parameters() if p.requires_grad]), "elements")
 The number of parameters: 18580300 elements
 """
-def build_model(num_tokens, d_model, d_ffn, seq_len, num_layers):
+def build_model(num_tokens, d_model, d_ffn, seq_len, num_layers,device):
     
     model = gMLP_LanguageModel(num_tokens,d_model,d_ffn,
-                            seq_len,num_layers,True)
-    if torch.cuda.is_available():
-        torch.cuda.set_device(hvd.local_rank())
-        model.cuda()
-    return model
+                            seq_len,num_layers,device,True).to(device)
+    
+    if torch.cuda.device_count()>1:
+        print("Using ",torch.cuda.device_count(),"GPUs in total!")
+        model = torch.nn.DataParallel(model,device_ids=[0,1,2,3],output_device=1)
+    
+    return model.cuda() if torch.cuda.is_available() else model
