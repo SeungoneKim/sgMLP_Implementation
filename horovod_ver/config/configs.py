@@ -6,9 +6,6 @@ import torch
 import numpy as np
 
 parser = argparse.ArgumentParser()
-if torch.cuda.device_count()>1:
-    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3"
 # gpu
 parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else "cpu")
 # hyperparameters
@@ -20,8 +17,6 @@ parser.add_argument('--test_batch_size',type=int,default=2)
 parser.add_argument('--display_examples',type=int, default=1000)
 
 parser.add_argument('--model_dim', type=int, default=768)
-parser.add_argument('--key_dim',type=int, default = 512)
-parser.add_argument('--value_dim',type=int, default= 512)
 parser.add_argument('--hidden_dim', type=int, default=1024)
 parser.add_argument('--num_layers', type=int, default=24)
 parser.add_argument('--num_heads', type=int, default=8)
