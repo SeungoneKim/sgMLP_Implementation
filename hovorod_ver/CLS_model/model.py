@@ -37,7 +37,7 @@ class gMLP_LanguageModel(gMLP):
 
     def forward(self,x):
         embedding = self.embed(x)
-    #    embedding = embedding.to(self.device)
+        embedding = embedding.cuda()
         output = self.model(embedding)
         if self.output_logits:
             output = self.softmax(self.to_logits(output))
