@@ -66,7 +66,7 @@ class Pretrain_Trainer():
         self.cur_path, self.weight_path, self.final_model_path = get_path_info()
 
         # build dataloader
-        self.train_dataloader, self.val_dataloader, self.test_dataloader = get_Pretrain_dataloader(
+        self.train_dataloader,self.train_sampler, self.val_dataloader,self.val_sampler, self.test_dataloader,self.test_sampler = get_Pretrain_dataloader(
             self.train_batch_size, self.val_batch_size, self.test_batch_size,
             self.language, self.max_len,
             self.args.pretrain_dataset_name, self.args.pretrain_dataset_type, self.args.pretrain_category_name,
@@ -91,6 +91,10 @@ class Pretrain_Trainer():
         self.optimizer = load_optimizer(self.model, self.lr, self.weight_decay, 
                                         self.beta1, self.beta2)
         
+        hvd.broadcast_parameters(self.model.state_dict(), root_rank=0)
+        hvd.broadcast_optimizer_state(self.optimizer, root_rank=0)
+        optimizer = hvd.DistributedOptimizer(self.optimizer,named_parameters=self.model.named_parameters())
+
         # build scheduler
         self.optim_scheduler = ScheduledOptim(self.optimizer, self.args.model_dim, self.num_warmup_steps)
         
@@ -135,6 +139,7 @@ class Pretrain_Trainer():
         # predict when training will end based on average time
         total_time_spent = 0
         
+        
         # start of looping through training data
         for epoch_idx in range(self.n_epoch):
             # measure time when epoch start
@@ -150,6 +155,7 @@ class Pretrain_Trainer():
             ########################
             
             # switch model to train mode
+            self.train_sampler.set_epoch(epoch_idx)
             self.model.train()
 
             # set initial variables for training (inside epoch)
@@ -158,17 +164,16 @@ class Pretrain_Trainer():
             # train model using batch gradient descent with Adam Optimizer
             for batch_idx, batch in tqdm(enumerate(self.train_dataloader)):
                 # move batch of data to gpu
-                input_ids = batch['input_ids'].to(self.device)                      #[bs, sl]
-                label_ids = batch['label_ids'].cuda(input_ids.device)               #[bs, sl]
-                token_type_ids = batch['token_type_ids'].cuda(input_ids.device)     #[bs, sl]
+                input_ids = batch['input_ids'].cuda()                   #[bs, sl]
+                label_ids = batch['label_ids'].cuda()               #[bs, sl]
 
                 # compute model output
                 # model_output_mlm = [bs, sl, vocab_size]
-                model_output_mlm = self.model(input_ids, token_type_ids)      # [bs,sl,vocab]
+                model_output_mlm = self.model(input_ids)      # [bs,sl,vocab]
 
                 # reshape model output and labels for MLM Task
-                reshaped_model_output_mlm = model_output_mlm.contiguous().view(-1,model_output_mlm.shape[-1]).to(self.device)       # [bs*sl,vocab]
-                reshaped_label_ids = label_ids.contiguous().view(-1).cuda(reshaped_model_output_mlm.device)                         # [bs*sl]
+                reshaped_model_output_mlm = model_output_mlm.contiguous().view(-1,model_output_mlm.shape[-1]).cuda()       # [bs*sl,vocab]
+                reshaped_label_ids = label_ids.contiguous().view(-1).cuda()                         # [bs*sl]
                 
                 # compute loss using model output for MLM Task
                 mlm_loss = self.mlm_lossfn(reshaped_model_output_mlm, reshaped_label_ids)
