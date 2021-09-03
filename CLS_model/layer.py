@@ -33,13 +33,10 @@ class SpatialGatingUnit_CLS(nn.Module):
 
     def forward(self,x):
         residual = x #학습이 느려질 여지가 될 수도 residual / 파라미터 증가 
-        cls  = x[:,0]
-        cls  = torch.mean(self.spatial_cls(cls).squeeze())
-        cls = torch.sigmoid(cls)
         x = self.layer_norm(x)
-        print(cls)
-        if cls>0.5:
-            x = self.spatial_proj_i(x)
-        else:
-            x = self.spatial_proj_ii(x)
-        return x+residual
+        cls  = x[:,0]
+        cls  = torch.tanh(self.spatial_cls(cls))
+        cls_idx = [0 if _<0 else 1 for _ in cls ] 
+        output = [self.spatial_proj_i(torch.unsqueeze(x[n],0)) if idx==0 else self.spatial_proj_ii(torch.unsqueeze(x[n],0)) for n,idx in enumerate(cls_idx)]
+        output = torch.squeeze(torch.stack(output))
+        return output + residual
