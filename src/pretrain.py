@@ -15,7 +15,7 @@ from config.configs import set_random_fixed, get_path_info
 from data.dataloader import get_Pretrain_dataloader
 from data.tokenizer import Tokenizer
 from util.utils import (load_metricfn, load_optimizer, load_scheduler, load_lossfn, 
-                        save_checkpoint, load_checkpoint, save_bestmodel, 
+                        save_checkpoint, load_checkpoint,
                         time_measurement, count_parameters, initialize_weights)
 from util.optim_scheduler import ScheduledOptim
 from models.model import build_model
@@ -47,7 +47,7 @@ class Pretrain_Trainer():
         self.num_warmup_steps = self.args.warm_up
         #self.factor = self.args.factor
         #self.patience = self.args.patience
-        self.clip = self.args.clip
+        #self.clip = self.args.clip
 
         self.language = self.args.language
         self.max_len = self.args.max_len
@@ -97,8 +97,8 @@ class Pretrain_Trainer():
 
     def train_test(self):
         best_model_epoch, training_history, validation_history = self.pretrain()
-        self.save_best_pretrained_model(best_model_epoch)
-        #self.plot(training_history, validation_history)
+
+        self.plot(training_history, validation_history)
         
     def pretrain(self):
         
@@ -279,28 +279,6 @@ class Pretrain_Trainer():
 
         return best_model_epoch, training_history, validation_history
 
-    def save_best_pretrained_model(self, best_model_epoch):
-
-        # logging message
-        sys.stdout.write('#################################################\n')
-        sys.stdout.write('Saving your best Model.\n')
-        sys.stdout.write('#################################################\n')
-
-        # set randomness of training procedure fixed
-        self.set_random(516)
-
-        # set weightpath
-        weightpath = os.path.join(os.getcwd(),'weights')
-
-        # loading the best_model from checkpoint
-        best_model = build_model(self.vocab_size, self.args.model_dim, self.args.hidden_dim, self.max_len, self.args.num_layers, self.device)
-        
-        load_checkpoint(best_model, self.optimizer, 
-                    os.path.join(self.weight_path,str(best_model_epoch)+".pth"))
-
-        # save best model
-        save_bestmodel(best_model,self.optimizer,self.args,
-                            os.path.join(self.final_model_path,"bestmodel.pth"))
 
     def plot(self, training_history, validation_history):
         step = np.linspace(0,self.n_epoch,self.n_epoch)

@@ -2,7 +2,7 @@ import logging
 import sys
 from config.configs import get_config
 from src.pretrain import Pretrain_Trainer
-#from src.finetune import Finetune_Trainer
+from src.finetune import Finetune_Trainer
 
 def main(parser, usage_mode):
 
@@ -52,7 +52,7 @@ def main(parser, usage_mode):
         sys.stdout.write('#################################################\n')
 
         # train with Finetune_Trainer
-        trainer = Finetune_Trainer(parser)
+        trainer = Finetune_Trainer(parser,task)
         trainer.train_test()
 
         sys.stdout.write('#################################################\n')

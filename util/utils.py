@@ -25,19 +25,19 @@ def load_metricfn(metric_type):
         metric= load_metric(metric_type)
     elif metric_type in sklearn_metrics_list:
         if metric_type == 'accuracy_score':
-            metric = skm.accuracy_score()
+            metric = skm.accuracy_score
         elif metric_type == 'f1_score':
-            metric = skm.f1_score()
+            metric = skm.f1_score
         elif metric_type == 'precision_score':
-            metric = skm.precision_score()
+            metric = skm.precision_score
         elif metric_type == 'recall_score':
-            metric = skm.recall_score()
+            metric = skm.recall_score
         elif metric_type == 'roc_auc_score':
-            metric = skm.roc_auc_score()
+            metric = skm.roc_auc_score
         elif metric_type == 'mean_squared_error':
-            metric = skm.mean_squared_error()
+            metric = skm.mean_squared_error
         elif metric_type == 'mean_absolute_error':
-            metric = skm.mean_absolute_error()
+            metric = skm.mean_absolute_error
     else:
         assert "You typed a metric that doesn't exist or is not supported"
 
@@ -136,31 +136,16 @@ def save_bestmodel(model, optimizer, parser, save_path):
     with open('model_information.txt','w') as f:
         json.dump(model_info,f,indent=2)
 
-def load_checkpoint(model, optimizer, load_path):
-    # loading state_dict of model and optimizer, and also loading epoch info
-    checkpoint = torch.load(load_path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
+def load_checkpoint(model, load_path):
+    # loading state_dict of model, and also loading epoch info
+    pretrained_dict = torch.load(load_path,map_location=torch.device('cuda'))['model_state_dict']
+    
+    model_dict = model.state_dict()
 
-    return model, optimizer, epoch
+    pretrained_dict = {k: v for k,v in pretrained_dict.items() if k in model_dict}
 
-def load_bestmodel(load_path):
-    # loading parser
-    args = get_config()
+    model_dict.update(pretrained_dict)
 
-    # set model, optimizer
-    best_model = build_model(args.pad_idx, args.pad_idx, args.bos_idx, 
-                args.vocab_size, args.vocab_size, 
-                args.model_dim, args.key_dim, args.value_dim, args.hidden_dim, 
-                args.num_head, args.num_layers, args.max_len, args.drop_prob)
+    model.load_state_dict(model_dict)
 
-    best_optimizer = load_optimizer(best_model, args.lr, args.weight_decay, 
-                                        args.beta1, args.beta2, args.eps)
-
-    # loading state_dict of model and optimizer
-    checkpoint = torch.load(load_path)
-    best_model.load_state_dict(checkpoint['model_state_dict'])
-    best_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-
-    return best_model, best_optimizer
+    return model

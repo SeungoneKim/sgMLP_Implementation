@@ -12,26 +12,16 @@ import torch.nn.functional as F
 import torch.optim as optim
 import transformers
 from config.configs import set_random_fixed, get_path_info
-from data.dataloader import get_dataloader
+from data.dataloader import get_Finetune_dataloader_Atype, get_Finetune_dataloader_Btype
 from data.tokenizer import Tokenizer
 from util.utils import (load_metricfn, load_optimizer, load_scheduler, load_lossfn, 
-                        save_checkpoint, load_checkpoint, save_bestmodel, 
+                        save_checkpoint, load_checkpoint,
                         time_measurement, count_parameters, initialize_weights)
-from models.model import build_model
-from glue_dataloader.Glue_ax import *
-from glue_dataloader.Glue_cola import *
-from glue_dataloader.Glue_qqp import *
-from glue_dataloader.Glue_rte import *
-from glue_dataloader.Glue_mnli import *
-from glue_dataloader.Glue_mnli_m import *
-from glue_dataloader.Glue_mnli_mm import *
-from glue_dataloader.Glue_mrpc import *
-from glue_dataloader.Glue_sst2 import *
-from glue_dataloader.Glue_stsb import *
-from glue_dataloader.Glue_wnli import *
+from util.optim_scheduler import ScheduledOptim
+from models.model import build_classification_model, build_regression_model
 
 class Finetune_Trainer():
-    def __init__(self, parser):
+    def __init__(self, parser, task):
         
         # set parser
         self.args = parser.parse_args()
@@ -49,34 +39,64 @@ class Finetune_Trainer():
         self.display_examples = self.args.display_examples # testing
         
         self.lr = self.args.init_lr
-        self.eps = self.args.adam_eps
+        #self.eps = self.args.adam_eps
         self.weight_decay = self.args.weight_decay
         self.beta1 = self.args.adam_beta1
         self.beta2 = self.args.adam_beta2
 
         self.warmup_steps = self.args.warm_up
-        self.factor = self.args.factor
-        self.patience = self.args.patience
-        self.clip = self.args.clip
+        #self.factor = self.args.factor
+        #self.patience = self.args.patience
+        #self.clip = self.args.clip
 
         self.language = self.args.language
         self.max_len = self.args.max_len
         self.vocab_size = self.args.vocab_size
 
         self.device = self.args.device
+        self.pretrain_weightpath = os.path.join(os.getcwd(),'weights')
+        self.weightpath = os.path.join(os.getcwd(),'finetune_weights')
+        self.final_weightpath = os.path.join(os.getcwd(),'final_finetune_weights')
+
+        self.best_pretrain_epoch = self.args.best_pretrain_epoch
         
-        #############
         # build dataloader
-        # SUPPORTS cola, sst2, mrpc, qqp, stsb, mnli, rte, wnli
-        # loads the dataloader of the selected dataset by specifying in self.finetune_dataset_name
-        self.train_dataloader, self.val_dataloader, self.test_dataloader = get_dataloader(
-            self.train_batch_size, self.val_batch_size, self.test_batch_size,
-            self.language, self.max_len,
-            self.args.finetune_dataset_name, self.args.finetune_dataset_type, self.args.finetune_category_name,
-            self.args.finetune_x_name, self.finetune_x_name_1, self.finetune_x_name_2,
-            self.args.finetune_y_name, self.args.finetune_percentage
-        )
-        #############
+        self.task = task
+        task_Atype = ['cola','sst2']
+        task_Btype = ['stsb','rte','mrpc','qqp','mnli']
+        task_Btype_sentence = ['stsb','rte','mrpc']
+        task_Btype_question = ['qqp']
+        task_Btype_hypothesis = ['mnli']
+        if task in task_Atype:
+            self.train_dataloader, self.val_dataloader, self.test_dataloader = get_Finetune_dataloader_Atype(
+                self.train_batch_size, self.val_batch_size, self.test_batch_size,
+                self.language, self.max_len,
+                'glue', task, 'sentence', 'label',
+                None
+            )
+        elif task in task_Btype_sentence:
+            self.train_dataloader, self.val_dataloader, self.test_dataloader = get_Finetune_dataloader_Btype(
+                self.train_batch_size, self.val_batch_size, self.test_batch_size,
+                self.language, self.max_len,
+                self.args.dataset_name, self.args.dataset_type, 'sentence1', 'sentence2', 'label',
+                None
+            )
+        elif task in task_Btype_question:
+            self.train_dataloader, self.val_dataloader, self.test_dataloader = get_Finetune_dataloader_Btype(
+                self.train_batch_size, self.val_batch_size, self.test_batch_size,
+                self.language, self.max_len,
+                self.args.dataset_name, self.args.dataset_type, 'question1', 'question2', 'label',
+                None
+            )
+        elif task in task_Btype_hypothesis:
+            self.train_dataloader, self.val_dataloader, self.test_dataloader = get_Finetune_dataloader_Btype(
+                self.train_batch_size, self.val_batch_size, self.test_batch_size,
+                self.language, self.max_len,
+                self.args.dataset_name, self.args.dataset_type, 'premise', 'hypothesis', 'label',
+                None
+            )
+        else:
+            assert "The task you typed in is not supported!"
 
         self.train_batch_num = len(self.train_dataloader)
         self.val_batch_num = len(self.val_dataloader)
@@ -86,31 +106,44 @@ class Finetune_Trainer():
 
         self.t_total = self.train_batch_num * self.n_epoch
 
-        # build tokenizer (for decoding purpose)
-        #self.decoder_tokenizer = Tokenizer(self.args.dec_language,self.args.dec_max_len)
-
         # load metric
-        # loads the metric of the selected dataset by specifying in self.args.metric
-        self.metric = load_metricfn(self.args.metric)
+        if task == 'mnli':
+            self.metric = load_metricfn('matthews_corrcoef')
+        elif task == 'stsb':
+            self.metric = load_metricfn('pearson')
+        else:
+            self.metric = load_metricfn('accuracy_score')
         
         # build model
-        self.model= build_model(self.vocab_size, self.args.model_dim, self.args.hidden_dim, self.max_len, self.args.num_layers, self.device)
+        if task in task_Atype:
+            self.model= build_classification_model(self.vocab_size, self.args.model_dim, self.args.hidden_dim, 
+                                                   self.max_len, self.args.num_layers, self.device, 'one')
+        elif task == 'stsb':
+            self.model = build_regression_model(self.vocab_size, self.args.model_dim, self.args.hidden_dim, 
+                                                   self.max_len, self.args.num_layers, self.device)
+        else:
+            self.model = build_classification_model(self.vocab_size, self.args.model_dim, self.args.hidden_dim, 
+                                                   self.max_len, self.args.num_layers, self.device, 'two')
         
-        self.model.apply(initialize_weights)
+        
+        load_checkpoint(self.model, os.path.join(self.pretrain_weightpath,str(self.best_pretrain_epoch)+".pth"))
 
         # build optimizer
         self.optimizer = load_optimizer(self.model, self.lr, self.weight_decay, 
-                                        self.beta1, self.beta2, self.eps)
+                                        self.beta1, self.beta2)
         
         # build scheduler
-        self.scheduler = load_scheduler(self.optimizer, self.factor, self.patience)
+        self.optim_scheduler = ScheduledOptim(self.optimizer, self.args.model_dim, self.warmup_steps)
         
         # build lossfn
-        self.lossfn = load_lossfn(self.args.finetune_lossfn,self.device,self.args.pad_idx)
+        if task=='stsb':
+            self.lossfn = load_lossfn('MSELoss',self.args.pad_idx)              # Regression
+        else:
+            self.lossfn = load_lossfn('CrossEntropyLoss',self.args.pad_idx)     # Classification
 
     def train_test(self):
         best_model_epoch, training_history, validation_history = self.finetune()
-        best_model = self.test(best_model_epoch)
+        self.test(best_model_epoch)
         self.plot(training_history, validation_history)
 
     def finetune(self):
@@ -144,7 +177,7 @@ class Finetune_Trainer():
         validation_history=[]
 
         # predict when training will end based on average time
-        total_time_spent_secs = 0
+        total_time_spent = 0
         
         # start of looping through training data
         for epoch_idx in range(self.n_epoch):
@@ -165,49 +198,46 @@ class Finetune_Trainer():
 
             # set initial variables for training (inside epoch)
             training_loss_per_epoch=0.0
-            training_score_per_epoch=0.0
 
             # train model using batch gradient descent with Adam Optimizer
             for batch_idx, batch in tqdm(enumerate(self.train_dataloader)):
                 # move batch of data to gpu
-                input_ids = batch['input_ids'].to(self.device)       # ???
-                labels = batch['label'].to(self.device)              # ???
+                input_ids = batch['input_ids']                      #[bs, 1, sl]
+                token_type_ids = batch['token_type_ids']            #[bs, 1, sl]
+                labels = batch['label']                             #[bs, 1]
+
+                # reshape input_ids and token_type_ids
+                reshaped_input_ids = input_ids.contiguous().permute(0,2,1).squeeze(2).to(self.device)
+                reshaped_token_type_ids = token_type_ids.contiguous().permute(0,2,1).squeeze(2).cuda(reshaped_input_ids.device)
+                reshaped_labels = labels.contiguous().squeeze(1).cuda(reshaped_input_ids.device)
 
                 # compute model output
-                model_output = self.model(input_ids)                # ???
+                # 1 sentence classification : Cola, SST2
+                # 2 sentence classification : RTE, MRPC, QQP, MNLI
+                # 2 sentence regression : STSB
+                model_output = self.model(reshaped_input_ids, reshaped_token_type_ids)          # [bs, 2] in classification, [bs, 1] in regression
 
-                # reshape model output and labels
-                reshaped_model_output = model_output.contiguous().view(-1,model_output.shape[-1])   # ???
-                reshaped_labels = labels[:,1:].contiguous().view(-1)                                # ???
-                
                 # compute loss using model output and labels(reshaped ver)
-                loss = self.lossfn(reshaped_model_output, reshaped_labels)
+                loss = self.lossfn(model_output, reshaped_labels)
 
                 # clear gradients, and compute gradient with current batch
                 self.optimizer.zero_grad()
                 loss.backward()
 
                 # clip gradients
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(),self.clip)
+                #torch.nn.utils.clip_grad_norm_(self.model.parameters(),self.clip)
 
                 # update gradients
-                self.optimizer.step()
+                self.optim_scheduler.step_and_update_lr()
 
                 # add loss to training_loss
                 training_loss_per_iteration = loss.item()
                 training_loss_per_epoch += training_loss_per_iteration
 
-                # compute bleu score using model output and labels(reshaped ver)
-                training_score_per_iteration = self.metric(reshaped_model_output, reshaped_labels)
-                training_score_per_epoch += training_score_per_iteration
-
                 # Display summaries of training procedure with period of display_step
                 if ((batch_idx+1) % self.display_step==0) and (batch_idx>0):
-                    sys.stdout.write(f"Training Phase |  Epoch: {epoch_idx+1} |  Step: {batch_idx+1} / {train_batch_num} | loss : {training_loss_per_iteration} | score : {training_score_per_iteration['bleu']}")
+                    sys.stdout.write(f"Training Phase |  Epoch: {epoch_idx+1} |  Step: {batch_idx+1} / {train_batch_num} | loss : {training_loss_per_iteration}")
                     sys.stdout.write('\n')
-
-            # update scheduler
-            self.scheduler.step()
 
             # save training loss of each epoch, in other words, the average of every batch in the current epoch
             training_mean_loss_per_epoch = training_loss_per_epoch / train_batch_num
@@ -227,25 +257,34 @@ class Finetune_Trainer():
             # validate model using batch gradient descent with Adam Optimizer
             for batch_idx, batch in tqdm(enumerate(self.val_dataloader)):
                 # move batch of data to gpu
-                input_ids = batch['sentence'].to(self.device)       # ???
-                labels = batch['label'].to(self.device)             # ???
+                input_ids = batch['input_ids']                      #[bs, 1, sl]
+                token_type_ids = batch['token_type_ids']            #[bs, 1, sl]
+                labels = batch['label']                             #[bs, 1]
+
+                # reshape input_ids and token_type_ids
+                reshaped_input_ids = input_ids.contiguous().permute(0,2,1).squeeze(2).to(self.device)
+                reshaped_token_type_ids = token_type_ids.contiguous().permute(0,2,1).squeeze(2).cuda(reshaped_input_ids.device)
+                reshaped_labels = labels.contiguous().squeeze(1).cuda(reshaped_input_ids.device)
 
                 # compute model output
-                model_output = self.model(input_ids)                # ???
-
-                # reshape model output and labels
-                reshaped_model_output = model_output.contiguous().view(-1,model_output.shape[-1])   # ???
-                reshaped_labels = labels[:,1:].contiguous().view(-1)                                # ???
+                # 1 sentence classification : Cola, SST2
+                # 2 sentence classification : RTE, MRPC, QQP, MNLI
+                # 2 sentence regression : STSB
+                with torch.no_grad():
+                    model_output = self.model(reshaped_input_ids, reshaped_token_type_ids)            # [bs, 2] in classification, [bs, 1] in regression
                 
                 # compute loss using model output and labels(reshaped ver)
-                loss = self.lossfn(reshaped_model_output, reshaped_decoder_labels)
+                loss = self.lossfn(model_output, reshaped_labels)
 
                 # add loss to training_loss
                 validation_loss_per_iteration = loss.item()
                 validation_loss_per_epoch += validation_loss_per_iteration
 
+                # reshape model output
+                reshaped_model_output = model_output.argmax(dim=1)
+
                 # compute bleu score using model output and labels(reshaped ver)
-                validation_score_per_iteration = self.metric(reshaped_model_output, reshaped_labels)
+                validation_score_per_iteration = self.metric(reshaped_model_output.cpu().detach().numpy(), reshaped_labels.cpu().detach().numpy())*100
                 validation_score_per_epoch += validation_score_per_iteration
 
             # save validation loss of each epoch, in other words, the average of every batch in the current epoch
@@ -261,38 +300,38 @@ class Finetune_Trainer():
 
             # Model Selection Process using validation_mean_score_per_epoch
             if (validation_mean_loss_per_epoch < best_model_loss):
-                best_model_epoch = epoch_idx
+                best_model_epoch = epoch_idx+1
                 best_model_loss = validation_mean_loss_per_epoch
                 best_model_score = validation_mean_score_per_epoch
 
                 save_checkpoint(self.model, self.optimizer, epoch_idx,
-                            os.path.join(self.args.weight_path,str(epoch_idx+1)+".pth"))
+                            os.path.join(self.weightpath,str(epoch_idx+1)+".pth"))
 
             # measure time when epoch end
             end_time = time.time()
 
             # measure the amount of time spent in this epoch
             epoch_mins, epoch_secs = time_measurement(start_time, end_time)
-            sys.stdout.write(f"Time spent in {epoch_idx+1} is {epoch_mins} minuites and {epoch_secs} seconds\n")
+            sys.stdout.write(f"Time spent in epoch {epoch_idx+1} is {epoch_mins} minuites and {epoch_secs} seconds\n")
             
             # measure the total amount of time spent until now
             total_time_spent += (end_time - start_time)
             total_time_spent_mins = int(total_time_spent/60)
             total_time_spent_secs = int(total_time_spent - (total_time_spent_mins*60))
-            sys.stdout.write(f"Total amount of time spent until {epoch_idx+1} is {total_time_spent_mins} minuites and {total_time_spent_secs} seconds\n")
+            sys.stdout.write(f"Total amount of time spent until epoch {epoch_idx+1} is {total_time_spent_mins} minuites and {total_time_spent_secs} seconds\n")
 
             # calculate how more time is estimated to be used for training
-            avg_time_spent_secs = total_time_spent_secs / (epoch_idx+1)
-            left_epochs = self.n_epoch - (epoch_idx+1)
-            estimated_left_time = avg_time_spent_secs * left_epochs
-            estimated_left_time_mins = int(estimated_left_time/60)
-            estimated_left_time_secs = int(estimated_left_time - (estimated_left_time_mins*60))
-            sys.stdout.write(f"Estimated amount of time until {self.n_epoch} is {estimated_left_time_mins} minuites and {estimated_left_time_secs} seconds\n")
+            #avg_time_spent_secs = total_time_spent_secs / (epoch_idx+1)
+            #left_epochs = self.n_epoch - (epoch_idx+1)
+            #estimated_left_time = avg_time_spent_secs * left_epochs
+            #estimated_left_time_mins = int(estimated_left_time/60)
+            #estimated_left_time_secs = int(estimated_left_time - (estimated_left_time_mins*60))
+            #sys.stdout.write(f"Estimated amount of time until epoch {self.n_epoch} is {estimated_left_time_mins} minuites and {estimated_left_time_secs} seconds\n")
 
         # summary of whole procedure    
         sys.stdout.write('#################################################\n')
         sys.stdout.write(f"Training and Validation has ended.\n")
-        sys.stdout.write(f"Your best model was the model from epoch {best_model_epoch} and scored {self.args.metric} score : {best_model_score} and loss : {best_model_loss}\n")
+        sys.stdout.write(f"Your best model was the model from epoch {best_model_epoch+1} and scored {self.args.metric} score : {best_model_score} | loss : {best_model_loss}\n")
         sys.stdout.write('#################################################\n')
 
         return best_model_epoch, training_history, validation_history
@@ -307,18 +346,24 @@ class Finetune_Trainer():
 
         # set randomness of training procedure fixed
         self.set_random(516)
-
-        # set weightpath
-        weightpath = os.path.join(os.getcwd(),'weights')
+        
+        # build directory to save to model's weights
+        self.build_final_directory()
 
         # loading the best_model from checkpoint
-        best_model = build_model(self.args.pad_idx, self.args.pad_idx, self.args.bos_idx, 
-                self.args.vocab_size, self.args.vocab_size, 
-                self.args.model_dim, self.args.key_dim, self.args.value_dim, self.args.hidden_dim, 
-                self.args.num_head, self.args.num_layers, self.args.max_len, self.args.drop_prob)
+        task_Atype = ['cola','sst2']
+        if self.task in task_Atype:
+            best_model= build_classification_model(self.vocab_size, self.args.model_dim, self.args.hidden_dim, 
+                                                   self.max_len, self.args.num_layers, self.device, 'one')
+        elif self.task == 'stsb':
+            best_model = build_regression_model(self.vocab_size, self.args.model_dim, self.args.hidden_dim, 
+                                                   self.max_len, self.args.num_layers, self.device)
+        else:
+            best_model = build_classification_model(self.vocab_size, self.args.model_dim, self.args.hidden_dim, 
+                                                   self.max_len, self.args.num_layers, self.device, 'two')
         
-        load_checkpoint(best_model, self.optimizer, 
-                    os.path.join(self.args.weight_path,str(best_model_epoch+1)+".pth"))
+        load_checkpoint(best_model,
+                    os.path.join(self.weightpath,str(best_model_epoch)+".pth"))
 
         # set initial variables for test
         test_batch_num = len(self.test_dataloader)
@@ -330,70 +375,47 @@ class Finetune_Trainer():
         # switch model to eval mode
         best_model.eval()
 
-        # set initial variables for testing
-        test_score=0.0 
-        
-        # test model using batch gradient descent with Adam Optimizer
-        with torch.no_grad():
-            for batch_idx, batch in tqdm(enumerate(self.test_dataloader)):
-                # move batch of data to gpu
-                encoder_input_ids = batch['encoder_input_ids'].to(self.device)
-                encoder_attention_mask = batch['encoder_attention_mask'].to(self.device)
-                decoder_input_ids = batch['decoder_input_ids'].to(self.device)
-                decoder_labels = batch['labels'].to(self.device)
-                decoder_attention_mask = batch['decoder_attention_mask'].to(self.device)
+        # set initial variables for validation (inside epoch)
+        test_score_per_epoch=0.0
+        test_score_tmp_list=[]
 
-                # shift shape to (bs,sl)
-                encoder_input_ids = encoder_input_ids.squeeze(1)
-                decoder_input_ids = decoder_input_ids.squeeze(1)
-                decoder_labels = decoder_labels.squeeze(1)
+        # validate model using batch gradient descent with Adam Optimizer
+        for batch_idx, batch in tqdm(enumerate(self.test_dataloader)):
+            # move batch of data to gpu
+            input_ids = batch['input_ids']                      #[bs, 1, sl]
+            token_type_ids = batch['token_type_ids']            #[bs, 1, sl]
+            labels = batch['label']                             #[bs, 1]
 
-                # compute model output
-                best_model_output = best_model(encoder_input_ids, decoder_input_ids[:, :-1]) # [bs,sl-1,vocab_dec]
-                
-                # reshape model output and labels
-                reshaped_best_model_output = best_model_output.contiguous().view(-1,best_model_output.shape[-1]) # [bs*(sl-1),vocab_dec]
-                reshaped_decoder_labels = decoder_labels[:,1:].contiguous().view(-1) # [bs*(sl-1),vocab_dec]
-                
-                # compute bleu score using model output and labels(reshaped ver)
-                test_score_per_iteration,_1,_2 = self.compute_bleu(reshaped_best_model_output,reshaped_decoder_labels)
-                test_score += test_score_per_iteration["bleu"]
-                
-                # Display examples of translation with period of display_examples
-                if (batch_idx+1) % self.display_examples==0 and batch_idx>0:
-                    # decode model_output and labels using Tokenizer
-                    decoded_origins = self.decoder_tokenizer.decode(encoder_input_ids)
-                    decoded_preds = self.decoder_tokenizer.decode(best_model_output)
-                    decoded_labels = self.decoder_tokenizer.decode(decoder_labels)
+            # reshape input_ids and token_type_ids
+            reshaped_input_ids = input_ids.contiguous().permute(0,2,1).squeeze(2).to(self.device)
+            reshaped_token_type_ids = token_type_ids.contiguous().permute(0,2,1).squeeze(2).cuda(reshaped_input_ids.device)
+            reshaped_labels = labels.contiguous().squeeze(1).cuda(reshaped_input_ids.device)
 
-                    # post process text for evaluation
-                    decoded_origins = [origin.strip() for origin in decoded_origins]
-                    decoded_preds = [pred.strip() for pred in decoded_preds]
-                    decoded_labels = [label.strip() for label in decoded_labels]
+            # compute model output
+            # 1 sentence classification : Cola, SST2
+            # 2 sentence classification : RTE, MRPC, QQP, MNLI
+            # 2 sentence regression : STSB
+            with torch.no_grad():
+                model_output = self.model(reshaped_input_ids, reshaped_token_type_ids)            # [bs, 2] in classification, [bs, 1] in regression
 
-                    # print out model_input(origin), model_output(pred) and labels(ground truth)
-                    sys.stdout.write(f"Testing Phase | Step: {batch_idx+1} / {test_batch_num}\n")
-                    sys.stdout.write("Original Sentence : ")
-                    sys.stdout.write(decoded_origins)
-                    sys.stdout.write('\n')
-                    sys.stdout.write("Ground Truth Translated Sentence : ")
-                    sys.stdout.write(decoded_labels)
-                    sys.stdout.write('\n')
-                    sys.stdout.write("Model Prediction - Translated Sentence : ")
-                    sys.stdout.write(decoded_preds)
-                    sys.stdout.write('\n')
+            # reshape model output
+            reshaped_model_output = model_output.argmax(dim=1)
+            
+            # compute bleu score using model output and labels(reshaped ver)
+            test_score_per_iteration = self.metric(reshaped_model_output.cpu().detach().numpy(), reshaped_labels.cpu().detach().numpy())*100
+            test_score_tmp_list.append(test_score_per_iteration)
+            test_score_per_epoch += test_score_per_iteration
 
-        # calculate test score
-        test_score = test_score / test_batch_num
+        # calculate test score        
+        test_score_per_epoch = test_score_per_epoch / test_batch_num
 
         # Evaluate summaries with period of display_steps
-        sys.stdout.write(f"Test Phase |  Best Epoch: {best_model_epoch+1} | score : {test_score}\n")
+        sys.stdout.write(f"Test Phase |  Best Epoch: {best_model_epoch} | score : {test_score_per_epoch}\n")
 
-        # save best model
-        save_bestmodel(best_model,self.optimizer,self.args,
-                            os.path.join(self.args.final_model_path,"bestmodel.pth"))
+        save_checkpoint(self.model, self.optimizer, 1,
+                            os.path.join(self.final_weightpath,"final_"+self.task+".pth"))
 
-        return best_model
+
 
     def plot(self, training_history, validation_history):
         step = np.linspace(0,self.n_epoch,self.n_epoch)
@@ -405,17 +427,20 @@ class Finetune_Trainer():
         plt.show()
 
         cur_path = os.getcwd()
-        save_dir = os.path.join(curpath,'plot')
-        path = os.path.join(save_dir, 'train_validation_plot.png')
+        plt.savefig(cur_path)
+
         sys.stdout.write('Image of train, validation history saved as plot png!\n')
-        
-        plt.savefig(path)
 
     def build_directory(self):
         # Making directory to store model pth
         curpath = os.getcwd()
-        weightpath = os.path.join(curpath,'weights')
+        weightpath = os.path.join(curpath,'finetune_weights')
         os.mkdir(weightpath)
+
+    def build_final_directory(self):
+        curpath = os.getcwd()
+        final_weightpath = os.path.join(curpath,'final_finetune_weights')
+        os.mkdir(final_weightpath)
 
     def set_random(self, seed_num):
         set_random_fixed(seed_num)

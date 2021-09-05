@@ -1,5 +1,5 @@
 from torch.utils.data import DataLoader, Dataset
-from data.dataset import PretrainDataset, PretrainDataset_total
+from data.dataset import PretrainDataset, PretrainDataset_total, FineTuneDataset_total_Atype, FineTuneDataset_total_Btype
 
 """
 book_train, book_val, book_test = get_Pretrain_dataloader(3,3,3,'en',128,'bookcorpus','plain_text','text',0.5,0.15,0.8,0.1,0.1)
@@ -29,11 +29,10 @@ def get_Pretrain_dataloader(train_batch_size, val_batch_size, test_batch_size,
 
 def get_Finetune_dataloader_Atype(train_batch_size, val_batch_size, test_batch_size,
                 language, max_len, 
-                dataset_name, dataset_type, category_type,
+                dataset_name, dataset_type, x_name, y_name,
                 percentage=None):
-
     dataset = FineTuneDataset_total_Atype(language, max_len,
-                dataset_name, dataset_type, category_type,
+                dataset_name, dataset_type, x_name, y_name,
                 percentage)
     
     train_dataloader = DataLoader(dataset=dataset.getTrainData_finetune_Atype(),
@@ -53,10 +52,10 @@ def get_Finetune_dataloader_Atype(train_batch_size, val_batch_size, test_batch_s
 
 def get_Finetune_dataloader_Btype(train_batch_size, val_batch_size, test_batch_size,
                                   language, max_len,
-                                  dataset_name, dataset_type, category_type,
+                                  dataset_name, dataset_type, x_name_1, x_name_2, y_name,
                                   percentage=None):
     dataset = FineTuneDataset_total_Btype(language, max_len,
-                                    dataset_name, dataset_type, category_type,
+                                    dataset_name, dataset_type, x_name_1, x_name_2, y_name,
                                     percentage)
 
     train_dataloader = DataLoader(dataset=dataset.getTrainData_finetune_Btype(),

@@ -3,6 +3,7 @@ from datasets import load_dataset, list_datasets # huggingface library
 from data.tokenizer import Tokenizer
 import random
 from torch.utils.data import Dataset
+import numpy as np
 
 class PretrainDataset(Dataset):
     def __init__(self, language, max_len, 
@@ -188,6 +189,7 @@ class PretrainDataset(Dataset):
 
         return batch
 
+
 class PretrainDataset_total():
     def __init__(self, language, max_len, 
                 dataset_name, dataset_type, category_type, next_sent_prob, masking_prob,
@@ -214,9 +216,10 @@ class PretrainDataset_total():
     def getTestData(self):
         return self.testdata
 
+
 class FineTuneDataset_Atype(Dataset):
     def __init__(self, language, max_len, 
-                dataset_name, dataset_type, split_type, category_type, 
+                dataset_name, dataset_type, split_type,
                 x_name, y_name, percentage=None):
         
         if dataset_name not in list_datasets():
@@ -230,8 +233,7 @@ class FineTuneDataset_Atype(Dataset):
         self.x_name = x_name
         self.y_name = y_name
         self.data_len = len(data) # number of data
-
-        self.data = data[category_type]
+        self.data = data
         self.dataX = self.data[x_name]
         self.dataY = self.data[y_name]
         
@@ -241,76 +243,152 @@ class FineTuneDataset_Atype(Dataset):
         return self.data_len
     
     def __getitem__(self, index):
+
         encoded_datax = self.tokenizer.encode(self.dataX[index])
-        encoded_datay = self.tokneizer.encode(self.dataY[index])
 
         batch ={}
-        batch['encoder_input_ids'] = encoded_datax.input_ids
-        batch['encoder_attention_mask'] = encoded_datax.attention_mask # will be generated in model as well
-        batch['decoder_input_ids'] = encoded_datay.input_ids
-        batch['labels'] = encoded_datay.input_ids.clone()
-        batch['decoder_attention_mask'] = encoded_datay.attention_mask # will be generated in model as well
+
+        batch['input_ids'] = encoded_datax['input_ids'].to(torch.long)
+        batch['token_type_ids'] = encoded_datax['token_type_ids'].to(torch.long)
+        batch['label'] = torch.Tensor([self.dataY[index]]).to(torch.long)
         
+
         return batch
 
 
 class FineTuneDataset_Btype(Dataset):
     def __init__(self, language, max_len,
-                 dataset_name, dataset_type, split_type, category_type,
-                 x_name_1, x_name_2, y_name, percentage=None):
+                 dataset_name, dataset_type, split_type, x_name_1, x_name_2, y_name,
+                 percentage=None):
 
         if dataset_name not in list_datasets():
             assert ('Not available in HuggingFace datasets')
 
-        if percentage is None:
-            data = load_dataset(dataset_name, dataset_type, split=split_type)
+        if dataset_type is None:
+            if percentage is None:
+                data = load_dataset(dataset_name, split=split_type)
+            else:
+                data = load_dataset(dataset_name, split=f'{split_type}[:{percentage}%]')
         else:
-            data = load_dataset(dataset_name, dataset_type, split=f'{split_type}[:{percentage}%]')
+            if percentage is None:
+                data = load_dataset(dataset_name, dataset_type, split=split_type)
+            else:
+                data = load_dataset(dataset_name, dataset_type, split=f'{split_type}[:{percentage}%]')
 
-        self.x_name_1 = x_name_1
-        self.x_name_2 = x_name_2
-        self.y_name = y_name
-        self.data_len = len(data)  # number of data
-
-        self.data = data[category_type]
+        self.data_len = len(data)
+        self.data = data
         self.dataX_1 = self.data[x_name_1]
         self.dataX_2 = self.data[x_name_2]
         self.dataY = self.data[y_name]
 
         self.tokenizer = Tokenizer(language, max_len)
+        self.max_len = max_len
+
+        if self.max_len != self.tokenizer.max_len:
+            assert "The max len you gave to Dataset does not match with tokenizer's max len!"
 
     def __len__(self):
         return self.data_len
 
     def __getitem__(self, index):
-        encoded_datax_1 = self.tokenizer.encode(self.dataX_1[index])
-        encoded_datax_2 = self.tokenizer.encode(self.dataX_2[index])
-        encoded_datay = self.tokneizer.encode(self.dataY[index])
+        # sampling first sentence
+        data1 = self.dataX_1[index].strip()
+        # choosing idx of second sentence
+        # sampling second sentence
+        data2 = self.dataX_2[index].strip()
 
-        # encoded_datax SEP .
+        # masking function : original sentence -> masked sentence
+        # "ENCODE" = "tokenize" + "convert token to id" + "truncation & padding" + "Transform to Tensor"
+        # tokenize sentence
+        # tokenized_data = self.tokenizer.tokenize(data)
+
+        tokenized_data1 = self.tokenizer.tokenize(data1)
+        tokenized_data2 = self.tokenizer.tokenize(data2)
+        # tokenized_data_len = len(tokenized_data)
+
+
+        input_ids_1 = []
+        input_ids_2 = []
+
+        for idx, token in enumerate(tokenized_data1):
+            tmp_token_idx = self.tokenizer.convert_tokens_to_ids(token)
+            input_ids_1.append(tmp_token_idx)
+
+        for idx, token in enumerate(tokenized_data2):
+            tmp_token_idx = self.tokenizer.convert_tokens_to_ids(token)
+            input_ids_2.append(tmp_token_idx)
+
+        # transformation function : sentence 1 & 2 -> torch Tensor
+        def Transformation_into_Tensor(input_ids1, input_ids2):
+            token_type_ids = []  # token_type_ids : 0 for first part "[CLS] + sentence1 + [SEP]", 1 for second part "sentence2 + [SEP]"
+
+            input_ids1_length = len(input_ids1)
+            input_ids2_length = len(input_ids2)
+
+            # truncation
+            total_length = input_ids1_length + input_ids2_length + 3
+            if total_length > self.max_len:
+                max_len_per_input_ids = int((self.max_len - 3) / 2)
+                if input_ids1_length > max_len_per_input_ids:
+                    input_ids1 = input_ids1[:max_len_per_input_ids]
+                if input_ids2_length > max_len_per_input_ids:
+                    input_ids2 = input_ids2[:max_len_per_input_ids]
+                # update input_ids1_length and input_ids2_length
+                input_ids1_length = len(input_ids1)
+                input_ids2_length = len(input_ids2)
+
+            # padding
+            # should perform padding even after truncation because 1 or 2 spaces might be shorter than max length
+            input_ids = [self.tokenizer.convert_tokens_to_ids(self.tokenizer.cls_token)] + input_ids1 +\
+                        [self.tokenizer.convert_tokens_to_ids(self.tokenizer.sep_token)] +\
+                        [self.tokenizer.convert_tokens_to_ids(self.tokenizer.cls_token)] + input_ids2 + \
+                        [self.tokenizer.convert_tokens_to_ids(self.tokenizer.sep_token)]
+            #
+            # label_ids = [self.tokenizer.convert_tokens_to_ids(self.tokenizer.cls_token)] + label_ids1 + \
+            #             [self.tokenizer.convert_tokens_to_ids(self.tokenizer.sep_token)] + \
+            #             [self.tokenizer.convert_tokens_to_ids(self.tokenizer.cls_token)] + label_ids2 + \
+            #             [self.tokenizer.convert_tokens_to_ids(self.tokenizer.sep_token)]
+
+            total_length = len(input_ids)
+            pad_length = self.max_len - total_length
+            input_ids = input_ids + [self.tokenizer.convert_tokens_to_ids(self.tokenizer.pad_token)] * pad_length
+
+            # build token_type_ids
+            token_type_ids1 = [0] * (input_ids1_length)
+            token_type_ids2 = [1] * (input_ids2_length)
+            token_type_ids = [0] + token_type_ids1 + [0] + [1] + token_type_ids2 + [1] + [0] * pad_length
+
+            # transform to tensor
+            input_ids = torch.Tensor(input_ids)
+            token_type_ids = torch.Tensor(token_type_ids)
+
+            return input_ids, token_type_ids
+
+        # "ENCODE" = "tokenize" + "convert token to id" + "truncation & padding" + "Transform to Tensor"
+        # encoded_input_ids, token_type_ids = Transformation_into_Tensor(data1, data2)
+        encoded_input_ids, token_type_ids = Transformation_into_Tensor(input_ids_1, input_ids_2)
+        # label_ids = torch.Tensor(np.array(self.dataY))
+        # build batch
         batch = {}
-        batch['encoder_input_ids'] = encoded_datax.input_ids
-        batch['encoder_attention_mask'] = encoded_datax.attention_mask  # will be generated in model as well
-        batch['decoder_input_ids'] = encoded_datay.input_ids
-        batch['labels'] = encoded_datay.input_ids.clone()
-        batch['decoder_attention_mask'] = encoded_datay.attention_mask  # will be generated in model as well
-
+        batch['input_ids'] = encoded_input_ids.to(torch.long)
+        batch['token_type_ids'] = token_type_ids.to(torch.long)
+        batch['label'] = torch.Tensor([self.dataY[index]]).to(torch.long)
+        
         return batch
 
 
 
+
 class FineTuneDataset_total_Atype():
-    def __init__(self, language, max_len,
-                 dataset_name, dataset_type, category_type,
-                 x_name, y_name, percentage=None):
+    def __init__(self, language, max_len, dataset_name, dataset_type, x_name, y_name, percentage=None):
         self.traindata = FineTuneDataset_Atype(language, max_len,
                                                dataset_name, dataset_type, 'train',
-                                               category_type, x_name, y_name, percentage)
+                                               x_name, y_name, percentage)
         self.valdata = FineTuneDataset_Atype(language, max_len,
-                                             dataset_name, dataset_type, 'validation', category_type,
+                                             dataset_name, dataset_type, 'validation',
                                              x_name, y_name, percentage)
         self.testdata = FineTuneDataset_Atype(language, max_len,
-                                              dataset_name, dataset_type, 'test', category_type,
+                                              dataset_name, dataset_type, 'test',
                                               x_name, y_name, percentage)
     
     def getTrainData_finetune_Atype(self):
@@ -325,17 +403,17 @@ class FineTuneDataset_total_Atype():
 
 class FineTuneDataset_total_Btype():
     def __init__(self, language, max_len,
-                 dataset_name, dataset_type, category_type,
+                 dataset_name, dataset_type,
                  x_name_1, x_name_2, y_name, percentage=None):
         self.traindata = FineTuneDataset_Btype(language, max_len,
-                                         dataset_name, dataset_type, 'train', category_type,
-                                         x_name_1, x_name_2, y_name, percentage)
+                                               dataset_name, dataset_type, 'train',
+                                               x_name_1, x_name_2, y_name, percentage)
         self.valdata = FineTuneDataset_Btype(language, max_len,
-                                       dataset_name, dataset_type, 'validation', category_type,
-                                       x_name_1, x_name_2, y_name, percentage)
+                                             dataset_name, dataset_type, 'validation',
+                                             x_name_1, x_name_2, y_name, percentage)
         self.testdata = FineTuneDataset_Btype(language, max_len,
-                                        dataset_name, dataset_type, 'test', category_type,
-                                        x_name_1, x_name_2, y_name, percentage)
+                                              dataset_name, dataset_type, 'test',
+                                              x_name_1, x_name_2, y_name, percentage)
 
     def getTrainData_finetune_Btype(self):
         return self.traindata
