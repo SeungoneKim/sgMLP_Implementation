@@ -55,6 +55,8 @@ class Finetune_Trainer():
 
         self.device = self.args.device
         self.pretrain_weightpath = os.path.join(os.getcwd(),'weights')
+        if os.path.isdir('finetune_weights'):
+            os.removedirs("finetune_weights")
         self.weightpath = os.path.join(os.getcwd(),'finetune_weights')
         self.final_weightpath = os.path.join(os.getcwd(),'final_finetune_weights')
 
@@ -206,9 +208,16 @@ class Finetune_Trainer():
                 token_type_ids = batch['token_type_ids']            #[bs, 1, sl]
                 labels = batch['label']                             #[bs, 1]
 
+                if self.task == "stsb":
+                    reshaped_input_ids = input_ids.to(self.device)
+                    reshaped_token_type_ids = token_type_ids.contiguous().cuda(reshaped_input_ids.device)
+
+                else:
+                    reshaped_input_ids = input_ids.contiguous().permute(0,2,1).squeeze(2).to(self.device)
+                    reshaped_token_type_ids = token_type_ids.contiguous().permute(0,2,1).squeeze(2).cuda(reshaped_input_ids.device)
                 # reshape input_ids and token_type_ids
-                reshaped_input_ids = input_ids.contiguous().permute(0,2,1).squeeze(2).to(self.device)
-                reshaped_token_type_ids = token_type_ids.contiguous().permute(0,2,1).squeeze(2).cuda(reshaped_input_ids.device)
+
+
                 reshaped_labels = labels.contiguous().squeeze(1).cuda(reshaped_input_ids.device)
 
                 # compute model output
