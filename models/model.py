@@ -52,19 +52,13 @@ class OneSentenceClassificationHead(nn.Module):
     """
     def __init__(self, input_dim, inner_dim, pooler_dropout, device):
         super().__init__()
-        self.dense = nn.Linear(input_dim, inner_dim).to(device)
-        self.activation_fn = nn.GELU()
-        self.dropout = nn.Dropout(p=pooler_dropout)
-        self.out_proj = nn.Linear(inner_dim, 1).to(device)
+        self.ffn = nn.Sequential(nn.Tanh(), nn.Linear(input_dim, inner_dim), nn.ReLU(),nn.Linear(inner_dim,1)).to(device)
 
     def forward(self, feature):
         # feature : model(body) output
         x = feature[:, 0, :]
-        x = self.dropout(x)
-        x = self.dense(x)
-        x = self.activation_fn(x)
-        x = self.dropout(x)
-        x = self.out_proj(x)
+        x = self.ffn(x)
+        x = torch.squeeze(x)
         return x
 
 # BCELoss
@@ -81,17 +75,13 @@ class TwoSentenceClassificationHead(nn.Module):
 
         """
         super().__init__()
-        self.dense = nn.Linear(input_dim, inner_dim).to(device)
-        self.activation_fn = nn.GELU()
-        self.dropout = nn.Dropout(p=pooler_dropout)
-        self.out_proj = nn.Linear(inner_dim, 1).to(device)
+        self.ffn = nn.Sequential(nn.Tanh(),nn.Linear(input_dim, inner_dim), nn.ReLU(),nn.Linear(inner_dim,1)).to(device)
 
     def forward(self, feature, second_cls_idx):
         indices = torch.tensor([0, second_cls_idx])  # indices for selecting 1st and 2nd [cls]
         cls1 = feature[:,0,:] # first [cls]
 
         cls2 = feature[second_cls_idx[0],second_cls_idx[1]]  # access two [cls] tokens embedding
-        print(cls2.shape)
         x = torch.cat([cls1, cls2], dim=-1)
         # x : [bs , 2 ,hidden_dim]
 
@@ -99,11 +89,8 @@ class TwoSentenceClassificationHead(nn.Module):
         # concat two [cls] token embedding
         # x: [bs, hidden_dim * 2]
 
-        x = self.dropout(x)
-        x = self.dense(x)
-        x = self.activation_fn(x)
-        x = self.dropout(x)
-        x = self.out_proj(x)
+        x = self.ffn(x)
+        x = torch.squeeze(x)
         return x
 
 # BCELoss
@@ -121,11 +108,9 @@ class TwoSentenceRegressionHead(nn.Module):
         self.cos = nn.CosineSimilarity(dim=1, eps=cos_eps)
 
     def forward(self, feature, second_cls_idx):
-        print(feature.shape)
         cls1 = feature[:,0,:] # first [cls]
 
         cls2 = feature[second_cls_idx[0], second_cls_idx[1]] # second [cls]
-        print(cls2.shape)
         # get cosine similarity between two [cls] tokens
         similarity = self.cos(cls1, cls2)
 
