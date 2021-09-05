@@ -78,21 +78,21 @@ class Finetune_Trainer():
             self.train_dataloader, self.val_dataloader, self.test_dataloader = get_Finetune_dataloader_Btype(
                 self.train_batch_size, self.val_batch_size, self.test_batch_size,
                 self.language, self.max_len,
-                self.args.dataset_name, self.args.dataset_type, 'sentence1', 'sentence2', 'label',
+                'glue', task, 'sentence1', 'sentence2', 'label',
                 None
             )
         elif task in task_Btype_question:
             self.train_dataloader, self.val_dataloader, self.test_dataloader = get_Finetune_dataloader_Btype(
                 self.train_batch_size, self.val_batch_size, self.test_batch_size,
                 self.language, self.max_len,
-                self.args.dataset_name, self.args.dataset_type, 'question1', 'question2', 'label',
+                'glue', task, 'question1', 'question2', 'label',
                 None
             )
         elif task in task_Btype_hypothesis:
             self.train_dataloader, self.val_dataloader, self.test_dataloader = get_Finetune_dataloader_Btype(
                 self.train_batch_size, self.val_batch_size, self.test_batch_size,
                 self.language, self.max_len,
-                self.args.dataset_name, self.args.dataset_type, 'premise', 'hypothesis', 'label',
+                'glue', task, 'premise', 'hypothesis', 'label',
                 None
             )
         else:
