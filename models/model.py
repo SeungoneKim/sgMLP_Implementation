@@ -44,18 +44,18 @@ class gMLP_LanguageModel(gMLP):
 
         return output
 
-# CrossEntropyLoss
+# BCELoss
 class OneSentenceClassificationHead(nn.Module):
     """
     for cola, sst2
-    output : [bs, 2] => p(True), p(False)
+    output : [bs, 1] => p(True), p(False)
     """
-    def __init__(self, input_dim, inner_dim, pooler_dropout):
+    def __init__(self, input_dim, inner_dim, pooler_dropout, device):
         super().__init__()
-        self.dense = nn.Linear(input_dim, inner_dim)
+        self.dense = nn.Linear(input_dim, inner_dim).to(device)
         self.activation_fn = nn.GELU()
         self.dropout = nn.Dropout(p=pooler_dropout)
-        self.out_proj = nn.Linear(inner_dim, 2)
+        self.out_proj = nn.Linear(inner_dim, 1).to(device)
 
     def forward(self, feature):
         # feature : model(body) output
@@ -67,13 +67,13 @@ class OneSentenceClassificationHead(nn.Module):
         x = self.out_proj(x)
         return x
 
-# CrossEntropyLoss
+# BCELoss
 class TwoSentenceClassificationHead(nn.Module):
     """
     for rte, mrpc, qqp, mnli
-    output : [bs, 2]
+    output : [bs, 1]
     """
-    def __init__(self,input_dim, inner_dim, pooler_dropout):
+    def __init__(self,input_dim, inner_dim, pooler_dropout, device):
         """
 
         input_dim: hidden_dim * 2 (!!! be careful !!!  two [cls] tokens will be concatenated)
@@ -81,16 +81,17 @@ class TwoSentenceClassificationHead(nn.Module):
 
         """
         super().__init__()
-        self.dense = nn.Linear(input_dim, inner_dim)
+        self.dense = nn.Linear(input_dim, inner_dim).to(device)
         self.activation_fn = nn.GELU()
         self.dropout = nn.Dropout(p=pooler_dropout)
-        self.out_proj = nn.Linear(inner_dim, 2)
+        self.out_proj = nn.Linear(inner_dim, 1).to(device)
 
     def forward(self, feature, second_cls_idx):
         indices = torch.tensor([0, second_cls_idx])  # indices for selecting 1st and 2nd [cls]
         cls1 = feature[:,0,:] # first [cls]
 
         cls2 = feature[second_cls_idx[0],second_cls_idx[1]]  # access two [cls] tokens embedding
+        print(cls2.shape)
         x = torch.cat([cls1, cls2], dim=-1)
         # x : [bs , 2 ,hidden_dim]
 
@@ -105,23 +106,26 @@ class TwoSentenceClassificationHead(nn.Module):
         x = self.out_proj(x)
         return x
 
-# CrossEntropyLoss
+# BCELoss
 class TwoSentenceRegressionHead(nn.Module):
     """
     for stsb
     output : [1] (cosine_similarity * 5)
     """
-    def __init__(self,input_dim, inner_dim, pooler_dropout, cos_eps):
+    def __init__(self,input_dim, inner_dim, pooler_dropout, cos_eps, device):
         super().__init__()
-        self.dense = nn.Linear(input_dim, inner_dim)
+        self.dense = nn.Linear(input_dim, inner_dim).to(device)
         self.activation_fn = nn.GELU()
         self.dropout = nn.Dropout(p=pooler_dropout)
-        self.out_proj = nn.Linear(inner_dim, 2)
+        self.out_proj = nn.Linear(inner_dim, 2).to(device)
         self.cos = nn.CosineSimilarity(dim=1, eps=cos_eps)
 
     def forward(self, feature, second_cls_idx):
+        print(feature.shape)
         cls1 = feature[:,0,:] # first [cls]
+
         cls2 = feature[second_cls_idx[0], second_cls_idx[1]] # second [cls]
+        print(cls2.shape)
         # get cosine similarity between two [cls] tokens
         similarity = self.cos(cls1, cls2)
 
@@ -133,8 +137,8 @@ class gMLP_ClassificationModel(gMLP_LanguageModel):
     def __init__(self,vocab_size, d_model, d_ffn, seq_len, num_layers,device,output_logits=False,task_type="one"):
         super().__init__(vocab_size, d_model, d_ffn, seq_len, num_layers,device,False)
         self.device = device
-        self.OneSentence = OneSentenceClassificationHead(d_model, int(d_model/2), 0.15)
-        self.TwoSentence = TwoSentenceClassificationHead(d_model*2, d_model, 0.15)
+        self.OneSentence = OneSentenceClassificationHead(d_model, int(d_model/2), 0.15, device)
+        self.TwoSentence = TwoSentenceClassificationHead(d_model*2, d_model, 0.15, device)
         # "one" => cola, sst2
         # "two" => stsb, rte, mrpc, qqp, mnli
         self.task_type = task_type
@@ -146,7 +150,10 @@ class gMLP_ClassificationModel(gMLP_LanguageModel):
         if self.task_type == "one":
             output = self.OneSentence(output)
         if self.task_type == "two":
-            output = self.TwoSentence(output)
+            indices = (x==101).nonzero()
+            indices = indices.transpose(0,1)
+            indices = indices[:,indices[1]>0]
+            output = self.TwoSentence(output, indices)
 
         return output
 
@@ -155,14 +162,18 @@ class gMLP_RegressionModel(gMLP_LanguageModel):
         super().__init__(vocab_size, d_model, d_ffn, seq_len, num_layers,device,False)
         self.device = device
         # stsb
-        self.Regression = TwoSentenceRegressionHead(d_model, int(d_model/2), 0.15, 1e-8)
+        self.Regression = TwoSentenceRegressionHead(d_model, int(d_model/2), 0.15, 1e-8, device)
         
 
     def forward(self,x, token_type_ids):
         embedding = self.embed(x, token_type_ids)
         embedding = embedding.to(self.device)
+        indices = (x==101).nonzero()
+        indices = indices.transpose(0,1)
+        indices = indices[:,indices[1]>0]
         output = self.model(embedding)
-        output = self.Regression(output)
+
+        output = self.Regression(output, indices)
 
         return output
 
