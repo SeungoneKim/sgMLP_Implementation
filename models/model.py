@@ -93,7 +93,7 @@ class TwoSentenceClassificationHead(nn.Module):
         x = torch.squeeze(x)
         return x
 
-# BCELoss
+
 class TwoSentenceRegressionHead(nn.Module):
     """
     for stsb
