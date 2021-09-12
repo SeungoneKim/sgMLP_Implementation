@@ -3,14 +3,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from models.embedding import TransformerEmbedding
 from models.layer import gMLPBLOCK, SpatialGatingUnit, SpatialTokenGen
-import numpy as np
 
 class gMLP(nn.Module):
-    def __init__(self, d_model, d_ffn, seq_len, num_layers):
+    def __init__(self,d_model,d_ffn,seq_len,num_layers):
         super(gMLP,self).__init__()
-        self.model = nn.Sequential(*[gMLPBLOCK(d_model, d_ffn, seq_len) for _ in range(num_layers)])
+        self.model = nn.Sequential(*[gMLPBLOCK(d_model,d_ffn,seq_len) for _ in range(num_layers)])
         
-    def forward(self, x):
+    def forward(self,x):
         x = self.model(x)
         return x
 
@@ -18,7 +17,7 @@ class NaturalLanguageUnderstandingHead(nn.Module):
     def __init__(self, vocab_size, model_dim, device):
         super(NaturalLanguageUnderstandingHead,self).__init__()
         self.linear_layer = nn.Linear(model_dim, vocab_size).to(device)
-        self.softmax = nn.LogSoftmax( dim=-1 )
+        self.softmax = nn.LogSoftmax(dim=-1)
     
     def forward(self, encoder_output):
         # mask_position = [bs, tgt_size(15% of sent)]
@@ -28,12 +27,12 @@ class NaturalLanguageUnderstandingHead(nn.Module):
 
 # NLLLoss => requires LogSoftmax at last
 class gMLP_LanguageModel(gMLP):
-    def __init__(self,vocab_size, d_model, d_ffn, seq_len, num_layers, device, output_logits = False):
-        super().__init__(d_model, d_ffn, seq_len, num_layers)
+    def __init__(self,vocab_size, d_model, d_ffn, seq_len, num_layers,device,output_logits=False):
+        super().__init__(d_model,d_ffn,seq_len,num_layers)
         self.device = device
-        self.embed = TransformerEmbedding(vocab_size, d_model, seq_len, 0.1, device)
+        self.embed = TransformerEmbedding(vocab_size,d_model,seq_len,0.1,device)
         self.output_logits = output_logits
-        self.to_logits = NaturalLanguageUnderstandingHead(vocab_size, d_model, device)
+        self.to_logits = NaturalLanguageUnderstandingHead(vocab_size,d_model,device)
         self.softmax = nn.LogSoftmax(dim=-1)
 
     def forward(self,x, token_type_ids):
@@ -82,17 +81,12 @@ class TwoSentenceClassificationHead(nn.Module):
 
         """
         super().__init__()
-        self.ffn = nn.Sequential(nn.Tanh(),nn.Linear(input_dim, inner_dim,),
-                                 nn.ReLU(),nn.Linear(inner_dim, 1))
-
-        '''
         self.dense = nn.Linear(input_dim, inner_dim)
         self.activation_fn = nn.GELU()
         self.dropout = nn.Dropout(p=pooler_dropout)
         self.out_proj = nn.Linear(inner_dim, 2)
-        '''
-    def forward(self, feature, second_cls_idx):
 
+    def forward(self, feature, second_cls_idx):
         indices = torch.tensor([0, second_cls_idx])  # indices for selecting 1st and 2nd [cls]
         cls1 = feature[:,0,:] # first [cls]
 
@@ -104,62 +98,40 @@ class TwoSentenceClassificationHead(nn.Module):
         # concat two [cls] token embedding
         # x: [bs, hidden_dim * 2]
 
-        x = self.ffn(x)
+        x = self.dropout(x)
+        x = self.dense(x)
+        x = self.activation_fn(x)
+        x = self.dropout(x)
+        x = self.out_proj(x)
         return x
 
-
-
-############################################################
-#  STS-B what i have to do
+# CrossEntropyLoss
 class TwoSentenceRegressionHead(nn.Module):
     """
-    for sts-b
+    for stsb
     output : [1] (cosine_similarity * 5)
     """
-    def __init__(self, input_dim, inner_dim, pooler_dropout, cos_eps):
+    def __init__(self,input_dim, inner_dim, pooler_dropout, cos_eps):
         super().__init__()
         self.dense = nn.Linear(input_dim, inner_dim)
-        self.preserve = nn.Linear(input_dim,input_dim)
-        torch.nn.init.xavier_uniform_(self.preserve.weight)
-        self.activation_fn = nn.ReLU() ## originally Tanh
+        self.activation_fn = nn.GELU()
         self.dropout = nn.Dropout(p=pooler_dropout)
         self.out_proj = nn.Linear(inner_dim, 2)
         self.cos = nn.CosineSimilarity(dim=1, eps=cos_eps)
 
-    def forward(self, feature, second_cls_idx): ## feature is lm output
-        feature = self.preserve(feature)
-        feature = self.activation_fn(feature)
-        feature = self.dropout(feature)
-        feature = self.preserve(feature)
-        feature = self.activation_fn(feature)
-        feature = self.dropout(feature)
-        feature = self.preserve(feature)
-        feature = self.activation_fn(feature)
-        feature = self.dropout(feature)
-        feature = self.preserve(feature)
-        feature = self.activation_fn(feature)
-        feature = self.dropout(feature)
-        feature = self.preserve(feature)
-        feature = self.activation_fn(feature)
-        feature = self.dropout(feature)
-
-        cls1 = feature[:, 0, :]  # first [cls]
-        cls2 = feature[second_cls_idx[0], second_cls_idx[1]]  # second [cls] shape(64,512)
+    def forward(self, feature, second_cls_idx):
+        cls1 = feature[:,0,:] # first [cls]
+        cls2 = feature[second_cls_idx[0], second_cls_idx[1]] # second [cls]
         # get cosine similarity between two [cls] tokens
-
-        similarity = self.cos(cls1, cls2) * 5 #shpae(64)
+        similarity = self.cos(cls1, cls2)
 
         # return with multiplying 5
         return similarity
-###############################################################
-
-
-
 
 
 class gMLP_ClassificationModel(gMLP_LanguageModel):
-    def __init__(self, vocab_size, d_model, d_ffn, seq_len, num_layers, device, output_logits=False, task_type="one"):
-        super().__init__(vocab_size, d_model, d_ffn, seq_len, num_layers, device, False)
+    def __init__(self,vocab_size, d_model, d_ffn, seq_len, num_layers,device,output_logits=False,task_type="one"):
+        super().__init__(vocab_size, d_model, d_ffn, seq_len, num_layers,device,False)
         self.device = device
         self.OneSentence = OneSentenceClassificationHead(d_model, int(d_model/2), 0.15)
         self.TwoSentence = TwoSentenceClassificationHead(d_model*2, d_model, 0.15)
@@ -167,7 +139,7 @@ class gMLP_ClassificationModel(gMLP_LanguageModel):
         # "two" => stsb, rte, mrpc, qqp, mnli
         self.task_type = task_type
 
-    def forward(self, x, token_type_ids):
+    def forward(self,x, token_type_ids):
         embedding = self.embed(x, token_type_ids)
         embedding = embedding.to(self.device)
         output = self.model(embedding)
@@ -179,8 +151,8 @@ class gMLP_ClassificationModel(gMLP_LanguageModel):
         return output
 
 class gMLP_RegressionModel(gMLP_LanguageModel):
-    def __init__(self, vocab_size, d_model, d_ffn, seq_len, num_layers, device, output_logits=False, task_type="one"):
-        super().__init__(vocab_size, d_model, d_ffn, seq_len, num_layers, device, False)
+    def __init__(self,vocab_size, d_model, d_ffn, seq_len, num_layers,device,output_logits=False,task_type="one"):
+        super().__init__(vocab_size, d_model, d_ffn, seq_len, num_layers,device,False)
         self.device = device
         # stsb
         self.Regression = TwoSentenceRegressionHead(d_model, int(d_model/2), 0.15, 1e-8)
@@ -189,15 +161,8 @@ class gMLP_RegressionModel(gMLP_LanguageModel):
     def forward(self,x, token_type_ids):
         embedding = self.embed(x, token_type_ids)
         embedding = embedding.to(self.device)
-        indices = (x == 101).nonzero()  # 101 is cls
-        indices = indices.transpose(0, 1)
-        indices = indices[:, indices[1] > 0]
-
         output = self.model(embedding)
-
-        # cls 위치를 모델 쪽에서 seq index를 넘겨줘서#
-
-        output = self.Regression(output, indices)
+        output = self.Regression(output)
 
         return output
 
@@ -230,11 +195,12 @@ def build_classification_model(num_tokens, d_model, d_ffn, seq_len, num_layers,d
     
     return model.cuda() if torch.cuda.is_available() else model
 
-def build_regression_model(num_tokens, d_model, d_ffn, seq_len, num_layers, device):
-    model = gMLP_RegressionModel(num_tokens, d_model, d_ffn, seq_len, num_layers, device, False).to(device)
+def build_regression_model(num_tokens, d_model, d_ffn, seq_len, num_layers,device):
+    model = gMLP_RegressionModel(num_tokens,d_model,d_ffn,
+                            seq_len,num_layers,device,False).to(device)
     
     if torch.cuda.device_count()>1:
-        print("Using ", torch.cuda.device_count(), "GPUs in total!")
-        model = torch.nn.DataParallel(model, device_ids=[0, 1, 2, 3], output_device=1)
+        print("Using ",torch.cuda.device_count(),"GPUs in total!")
+        model = torch.nn.DataParallel(model,device_ids=[0,1,2,3],output_device=1)
     
     return model.cuda() if torch.cuda.is_available() else model
