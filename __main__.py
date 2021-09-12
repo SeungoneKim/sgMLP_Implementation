@@ -9,7 +9,7 @@ def main(parser, usage_mode):
 
     # TO BE UPDATED
     supported_tasks = ['classification','summarization']
-    
+    args = parser.parse_args()
     # pretrain
     if usage_mode == 'pretrain':
         te = open("pretrain_log.txt",'w')
@@ -37,7 +37,10 @@ def main(parser, usage_mode):
         sys.stdout.close()
     # finetune
     elif usage_mode == 'finetune':
-        task = input('Which dataset are you finetuning on :')
+        if args.dataset_type == None:
+            task = input('Which dataset are you finetuning on :')
+        else:
+            task = args.dataset_type
         te = open(f"finetune_{task}_log.txt",'w')
         class BufferHandler:
             def __init__(self, stream):
