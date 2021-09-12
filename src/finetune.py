@@ -7,6 +7,7 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+import shutil
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -19,13 +20,15 @@ from util.utils import (load_metricfn, load_optimizer, load_scheduler, load_loss
                         time_measurement, count_parameters, initialize_weights)
 from util.optim_scheduler import ScheduledOptim
 from models.model import build_classification_model, build_regression_model
+import wandb
 
 class Finetune_Trainer():
     def __init__(self, parser, task):
         
         # set parser
         self.args = parser.parse_args()
-
+        #initialize wandb
+        #wandb.init(name=task)
         # save loss history to plot later on
         self.training_history = []
         self.validation_history = []
@@ -55,6 +58,8 @@ class Finetune_Trainer():
 
         self.device = self.args.device
         self.pretrain_weightpath = os.path.join(os.getcwd(),'weights')
+        if os.path.isdir('finetune_weights'):
+            shutil.rmtree("finetune_weights")
         self.weightpath = os.path.join(os.getcwd(),'finetune_weights')
         self.final_weightpath = os.path.join(os.getcwd(),'final_finetune_weights')
 
@@ -64,6 +69,7 @@ class Finetune_Trainer():
         self.task = task
         task_Atype = ['cola','sst2']
         task_Btype = ['stsb','rte','mrpc','qqp','mnli']
+        self.task_Btype = ['stsb','rte','mrpc','qqp','mnli']
         task_Btype_sentence = ['stsb','rte','mrpc']
         task_Btype_question = ['qqp']
         task_Btype_hypothesis = ['mnli']
@@ -198,25 +204,44 @@ class Finetune_Trainer():
 
             # set initial variables for training (inside epoch)
             training_loss_per_epoch=0.0
+            training_acc_per_epoch = 0
 
             # train model using batch gradient descent with Adam Optimizer
             for batch_idx, batch in tqdm(enumerate(self.train_dataloader)):
                 # move batch of data to gpu
                 input_ids = batch['input_ids']                      #[bs, 1, sl]
                 token_type_ids = batch['token_type_ids']            #[bs, 1, sl]
-                labels = batch['label']                             #[bs, 1]
+                labels = batch['label'].to(torch.float)                             #[bs, 1]
 
                 # reshape input_ids and token_type_ids
-                reshaped_input_ids = input_ids.contiguous().permute(0,2,1).squeeze(2).to(self.device)
-                reshaped_token_type_ids = token_type_ids.contiguous().permute(0,2,1).squeeze(2).cuda(reshaped_input_ids.device)
+                if self.task in self.task_Btype:
+                    reshaped_input_ids = input_ids.to(self.device)
+                    reshaped_token_type_ids = token_type_ids.contiguous().cuda(reshaped_input_ids.device)
+
+                else:
+                    reshaped_input_ids = input_ids.contiguous().permute(0,2,1).squeeze(2).to(self.device)
+                    reshaped_token_type_ids = token_type_ids.contiguous().permute(0,2,1).squeeze(2).cuda(reshaped_input_ids.device)
+                # reshape input_ids and token_type_ids
                 reshaped_labels = labels.contiguous().squeeze(1).cuda(reshaped_input_ids.device)
 
                 # compute model output
                 # 1 sentence classification : Cola, SST2
                 # 2 sentence classification : RTE, MRPC, QQP, MNLI
                 # 2 sentence regression : STSB
-                model_output = self.model(reshaped_input_ids, reshaped_token_type_ids)          # [bs, 2] in classification, [bs, 1] in regression
+                model_output = self.model(reshaped_input_ids, reshaped_token_type_ids).squeeze()          # [bs, 2] in classification, [bs, 1] in regression
+                train_pred = torch.tensor([1 if n >0 else 0 for n in model_output]).to(self.device)
+                training_acc_per_epoch += self.metric(train_pred.cpu().detach().numpy(), reshaped_labels.cpu().detach().numpy())
 
+
+                # print(model_output.float().type())
+                # print(model_output)
+                # print(reshaped_labels.type())
+                # print(reshaped_labels)
+                if batch_idx == 0:
+                    print("##### train pred #####")
+                    print(model_output)
+                    print(reshaped_labels)
+                    print("#"*len("##### train pred #####"))
                 # compute loss using model output and labels(reshaped ver)
                 loss = self.lossfn(model_output, reshaped_labels)
 
@@ -242,6 +267,7 @@ class Finetune_Trainer():
             # save training loss of each epoch, in other words, the average of every batch in the current epoch
             training_mean_loss_per_epoch = training_loss_per_epoch / train_batch_num
             training_history.append(training_mean_loss_per_epoch)
+            training_acc_per_epoch = (training_acc_per_epoch/train_batch_num)*100
 
             ##########################
             #### Validation Phase ####
@@ -259,20 +285,31 @@ class Finetune_Trainer():
                 # move batch of data to gpu
                 input_ids = batch['input_ids']                      #[bs, 1, sl]
                 token_type_ids = batch['token_type_ids']            #[bs, 1, sl]
-                labels = batch['label']                             #[bs, 1]
+                labels = batch['label'].to(torch.float)                             #[bs, 1]
 
-                # reshape input_ids and token_type_ids
-                reshaped_input_ids = input_ids.contiguous().permute(0,2,1).squeeze(2).to(self.device)
-                reshaped_token_type_ids = token_type_ids.contiguous().permute(0,2,1).squeeze(2).cuda(reshaped_input_ids.device)
+               # reshape input_ids and token_type_ids
+                if self.task in self.task_Btype:
+                    reshaped_input_ids = input_ids.to(self.device)
+                    reshaped_token_type_ids = token_type_ids.contiguous().cuda(reshaped_input_ids.device)
+
+                else:
+                    reshaped_input_ids = input_ids.contiguous().permute(0,2,1).squeeze(2).to(self.device)
+                    reshaped_token_type_ids = token_type_ids.contiguous().permute(0,2,1).squeeze(2).cuda(reshaped_input_ids.device)
+
                 reshaped_labels = labels.contiguous().squeeze(1).cuda(reshaped_input_ids.device)
+
 
                 # compute model output
                 # 1 sentence classification : Cola, SST2
                 # 2 sentence classification : RTE, MRPC, QQP, MNLI
                 # 2 sentence regression : STSB
                 with torch.no_grad():
-                    model_output = self.model(reshaped_input_ids, reshaped_token_type_ids)            # [bs, 2] in classification, [bs, 1] in regression
-                
+                    model_output = self.model(reshaped_input_ids, reshaped_token_type_ids).squeeze()            # [bs, 2] in classification, [bs, 1] in regression
+
+                if batch_idx == 0:
+
+                    print(model_output)
+                    print(reshaped_labels)
                 # compute loss using model output and labels(reshaped ver)
                 loss = self.lossfn(model_output, reshaped_labels)
 
@@ -281,7 +318,7 @@ class Finetune_Trainer():
                 validation_loss_per_epoch += validation_loss_per_iteration
 
                 # reshape model output
-                reshaped_model_output = model_output.argmax(dim=1)
+                reshaped_model_output = torch.tensor([1 if n >0 else 0 for n in model_output.squeeze()]).to(self.device)
 
                 # compute bleu score using model output and labels(reshaped ver)
                 validation_score_per_iteration = self.metric(reshaped_model_output.cpu().detach().numpy(), reshaped_labels.cpu().detach().numpy())*100
@@ -307,6 +344,18 @@ class Finetune_Trainer():
                 save_checkpoint(self.model, self.optimizer, epoch_idx,
                             os.path.join(self.weightpath,str(epoch_idx+1)+".pth"))
 
+            #wandb log
+            train_log_dict = {
+            "train/step": epoch_idx,  # grows exponentially with internal wandb step
+            "train/loss": training_mean_loss_per_epoch, # x-axis is train/step
+            "train/accuracy": training_acc_per_epoch} # x-axis is train/step
+            val_log_dict ={
+            "val/loss": validation_mean_loss_per_epoch, # x-axis is internal wandb step
+            "val/accuracy":validation_mean_score_per_epoch
+
+           }
+            # wandb.log(train_log_dict)
+            # wandb.log(val_log_dict)
             # measure time when epoch end
             end_time = time.time()
 

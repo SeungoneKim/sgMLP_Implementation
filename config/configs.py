@@ -12,7 +12,7 @@ if torch.cuda.device_count()>1:
 # gpu
 parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else "cpu")
 # hyperparameters
-parser.add_argument('--epoch', type=int, default=200)
+parser.add_argument('--epoch', type=int, default=20)
 parser.add_argument('--train_batch_size', type=int, default=64)
 parser.add_argument('--display_step',type=int, default=100)
 parser.add_argument('--val_batch_size',type=int, default=64)
@@ -77,6 +77,8 @@ parser.add_argument('--finetune_percentage',type=int, default=100)
 parser.add_argument('--model_path', type=str, default=None)
 parser.add_argument('--weight_path', type=str, default=None)
 parser.add_argument('--best_pretrain_epoch',type=int, default=1)
+parser.add_argument("--dataset_name", type=str, default="glue")
+parser.add_argument("--dataset_type", type=str, default=None)
 
 def get_config():
     args = parser.parse_args()
