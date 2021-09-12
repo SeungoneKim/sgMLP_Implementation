@@ -49,7 +49,7 @@ def get_Finetune_dataloader_Atype(train_batch_size, val_batch_size, test_batch_s
     
     return train_dataloader, val_dataloader, test_dataloader
 
-
+# cola B type
 def get_Finetune_dataloader_Btype(train_batch_size, val_batch_size, test_batch_size,
                                   language, max_len,
                                   dataset_name, dataset_type, x_name_1, x_name_2, y_name,
@@ -60,15 +60,15 @@ def get_Finetune_dataloader_Btype(train_batch_size, val_batch_size, test_batch_s
 
     train_dataloader = DataLoader(dataset=dataset.getTrainData_finetune_Btype(),
                                   batch_size=train_batch_size,
-                                  shuffle=True)
+                                  shuffle=True, drop_last= True)
 
     val_dataloader = DataLoader(dataset=dataset.getValData_finetune_Btype(),
                                 batch_size=val_batch_size,
-                                shuffle=True)
+                                shuffle=True, drop_last= True)
 
     test_dataloader = DataLoader(dataset=dataset.getTestData_finetune_Btype(),
                                  batch_size=test_batch_size,
-                                 shuffle=True)
+                                 shuffle=True, drop_last= True)
 
     return train_dataloader, val_dataloader, test_dataloader
 

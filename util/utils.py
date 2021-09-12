@@ -1,4 +1,6 @@
 import json
+
+import scipy.stats
 import sklearn.metrics as skm
 import torch
 import torch.nn as nn
@@ -15,12 +17,14 @@ sklearn_metrics_list = ['accuracy_score','f1_score','precision_score','recall_sc
                         'roc_auc_score','mean_squared_error','mean_absolute_error']
 
 lossfn_list = ['BCELoss','CrossEntropyLoss','KLDivLoss','BCEWithLogitsLoss',
-                'L1Loss','MSELoss','NLLLoss']
+                'L1Loss','MSELoss','NLLLoss','MAE']
 
 def load_metricfn(metric_type):
     metric= None
     if metric_type == 'bleu':
         metric = sentence_bleu
+    if metric_type == 'pearson':
+        metric = scipy.stats.pearsonr
     elif metric_type in huggingface_metrics_list:
         metric= load_metric(metric_type)
     elif metric_type in sklearn_metrics_list:
@@ -46,13 +50,13 @@ def load_metricfn(metric_type):
 def load_lossfn(lossfn_type,device,ignore_idx=None):
     lossfn= None
     if lossfn_type in lossfn_list:
-        if lossfn_type == 'BCELoss':
+        if lossfn_type == 'BCELoss': #
             lossfn = nn.BCELoss()
         elif lossfn_type == 'CrossEntropyLoss':
             if ignore_idx != None:
-                lossfn = nn.CrossEntropyLoss(ignore_index=ignore_idx).to(device)
+                lossfn = nn.BCEWithLogitsLoss(ignore_index=ignore_idx).to(device) # 알고보니 BCELoss였던거....;;
             else:
-                lossfn = nn.CrossEntropyLoss().to(device)
+                lossfn = nn.BCEWithLogitsLoss().to(device)
         elif lossfn_type == 'KLDivLoss':
             lossfn = nn.KLDivLoss()
         elif lossfn_type == 'BCEWithLogitsLoss':

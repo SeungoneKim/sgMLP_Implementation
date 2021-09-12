@@ -120,7 +120,7 @@ class PretrainDataset(Dataset):
             # truncation
             total_length = input_ids1_length + input_ids2_length + 3
             if total_length > self.max_len:
-                max_len_per_input_ids = int((self.max_len-3) / 2)
+                max_len_per_input_ids = int(((self.max_len-3) / 2).__floor__()) ####### -1 안해줘서 혹시 65?
                 if input_ids1_length > max_len_per_input_ids:
                     input_ids1 = input_ids1[:max_len_per_input_ids]
                     label_ids1 = label_ids1[:max_len_per_input_ids]
@@ -327,8 +327,8 @@ class FineTuneDataset_Btype(Dataset):
 
             # truncation
             total_length = input_ids1_length + input_ids2_length + 3
-            if total_length > self.max_len:
-                max_len_per_input_ids = int((self.max_len - 3) / 2)
+            if total_length >= self.max_len:
+                max_len_per_input_ids = int(((self.max_len - 3) // 2))
                 if input_ids1_length > max_len_per_input_ids:
                     input_ids1 = input_ids1[:max_len_per_input_ids]
                 if input_ids2_length > max_len_per_input_ids:
@@ -363,6 +363,8 @@ class FineTuneDataset_Btype(Dataset):
             token_type_ids = torch.Tensor(token_type_ids)
 
             return input_ids, token_type_ids
+
+
 
         # "ENCODE" = "tokenize" + "convert token to id" + "truncation & padding" + "Transform to Tensor"
         # encoded_input_ids, token_type_ids = Transformation_into_Tensor(data1, data2)

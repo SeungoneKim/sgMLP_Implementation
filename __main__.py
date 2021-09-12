@@ -3,6 +3,7 @@ import sys
 from config.configs import get_config
 from src.pretrain import Pretrain_Trainer
 from src.finetune import Finetune_Trainer
+import wandb
 
 def main(parser, usage_mode):
 
@@ -71,10 +72,10 @@ if __name__ == "__main__":
     sys.stdout.write('#################################################\n')
     sys.stdout.write('You have entered __main__.\n')
     sys.stdout.write('#################################################\n')
-    
-    # define ArgumentParser
-    parser = get_config()
 
+    # define ArgumentParser
+    parser, args = get_config()
+    wandb.init(config=args)
     # get user input of whether purpose is train or inference
     usage_mode = input('Enter the mode you want to use :')
 

@@ -12,11 +12,11 @@ if torch.cuda.device_count()>1:
 # gpu
 parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else "cpu")
 # hyperparameters
-parser.add_argument('--epoch', type=int, default=30)
-parser.add_argument('--train_batch_size', type=int, default=16)
+parser.add_argument('--epoch', type=int, default=200)
+parser.add_argument('--train_batch_size', type=int, default=64)
 parser.add_argument('--display_step',type=int, default=100)
-parser.add_argument('--val_batch_size',type=int, default=16)
-parser.add_argument('--test_batch_size',type=int,default=16)
+parser.add_argument('--val_batch_size',type=int, default=64)
+parser.add_argument('--test_batch_size',type=int,default=64)
 parser.add_argument('--display_examples',type=int, default=100)
 
 parser.add_argument('--model_dim', type=int, default=512)
@@ -79,7 +79,8 @@ parser.add_argument('--weight_path', type=str, default=None)
 parser.add_argument('--best_pretrain_epoch',type=int, default=1)
 
 def get_config():
-    return parser
+    args = parser.parse_args()
+    return parser, args
 
 def set_random_fixed(seed_num):
     random.seed(seed_num)
